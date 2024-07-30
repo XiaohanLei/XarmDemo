@@ -5,36 +5,49 @@ import os
 import json
 from datetime import datetime
 import keyboard
+from pathlib import Path
+from scipy.spatial.transform import Rotation as R
+from xarm.wrapper import XArmAPI
 
 class DataCollector:
     def __init__(self):
+
+        self.num_cameras = 1
         self.cameras = []
         self.pipeline = []
         self.align = []
+        self.intrinsics = []
+        self.extrinsics = []
         
         # 初始化相机
-        for i in range(3):
+        for i in range(self.num_cameras):
             pipeline = rs.pipeline()
             config = rs.config()
             config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
-            config.enable_stream(rs.stream.color, 1920, 1080, rs.format.bgr8, 30)
+            config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
             pipeline.start(config)
             self.pipeline.append(pipeline)
             self.align.append(rs.align(rs.stream.color))
+            self.extrinsics.append(np.load('extrinsic.npy'))
+    
         
-        # 相机内参和外参（假设已知）
-        self.intrinsics = [None, None, None]  # 需要填充实际的内参
-        self.extrinsics = [None, None, None]  # 需要填充实际的外参
+
+        # self.extrinsics = [[[ 0.09529217, 0.47956549, -0.87231666, 0.83413991],
+        #                    [ 0.99378559, 0.00481251, 0.11120721, 0.11541528],
+        #                    [0.05752917, -0.8774929,  -0.47612667, 0.40279357],
+        #                    [0, 0, 0, 1]]]  # 需要填充实际的外参
         
-        self.task_dir = ""
+        self.task_dir = Path("data")
         self.episode_count = 0
         self.frame_count = 0
         self.current_episode = {}
+
+        self.arm = None
+        self.init_xarm()
         
     def start_task(self, task_instruction):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.task_dir = f"task_{timestamp}"
-        os.makedirs(self.task_dir, exist_ok=True)
+        self.c_task_dir = self.task_dir / task_instruction
+        self.c_task_dir.mkdir(parents=True, exist_ok=True)
         
         self.current_episode = {
             "instruction": task_instruction,
@@ -56,6 +69,12 @@ class DataCollector:
             
             depth_image = np.asanyarray(depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
+            
+            if len(self.intrinsics) < self.num_cameras:
+                intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+                self.intrinsics.append(np.array([[intrinsics.fx, 0, intrinsics.ppx],
+                                                 [0, intrinsics.fy, intrinsics.ppy],
+                                                 [0, 0, 1]]))
             
             frames_data.append({
                 "color": color_image,
@@ -88,19 +107,24 @@ class DataCollector:
         print(f"记录关键帧 {self.frame_count}")
     
     def save_episode(self):
-        episode_filename = f"{self.task_dir}/episode_{self.episode_count:03d}.npz"
+        episode_filename = self.c_task_dir / f"episode_{self.episode_count:03d}.npz"
         np.savez_compressed(episode_filename, **self.current_episode)
         print(f"保存episode：{episode_filename}")
+
+    def init_xarm(self, ip="192.168.1.197"):
+        self.arm = XArmAPI(ip, is_radian=False)
+        print('机械臂初始化完成')
     
     def get_gripper_pose(self):
-        # 这里需要实现获取机械臂gripper的6-DoF位姿
         # 返回一个包含位置和旋转的字典
-        return {"position": [0, 0, 0], "rotation": [0, 0, 0, 1]}  # 示例数据
+        _ , pos = self.arm.get_position(is_radian=False)
+        return {"position": np.array(pos[:3]) / 1000., "rotation": np.array(pos[-3:])}  # 示例数据
     
     def get_gripper_state(self):
         # 这里需要实现获取夹爪开合情况
         # 返回一个表示夹爪开合程度的浮点数（0.0表示完全闭合，1.0表示完全打开）
-        return 0.5  # 示例数据
+        _, p = self.arm.get_gripper_position()
+        return p / 850  # 示例数据
     
     def run(self):
         while True:
