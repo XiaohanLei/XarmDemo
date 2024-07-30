@@ -12,6 +12,7 @@ if __name__ == '__main__':
     depth = camera_data['depth'] * 0.00025 # from mm to m
     intrinsics = camera_data['intrinsics']
     extrinsics = camera_data['extrinsics']
+    instructions = str(data['instruction'])
 
     K = np.array(intrinsics)
     extrinsics = np.array(extrinsics) # cam 2 base
