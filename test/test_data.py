@@ -5,7 +5,7 @@ data_path = 'data/'
 
 if __name__ == '__main__':
 
-    data = np.load('data/pick the lemon/episode_001.npz', allow_pickle=True)
+    data = np.load('data/pick the lemon/episode_011.npz', allow_pickle=True)
     frame_0 = data['frames'][0]
     camera_data = frame_0['camera_data'][0]
     color = camera_data['color'][..., ::-1]
