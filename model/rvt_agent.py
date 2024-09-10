@@ -17,10 +17,10 @@ from torch.nn.parallel.distributed import DistributedDataParallel
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import utils.peract_utils as peract_utils
-import mvt.utils as mvt_utils
+import model.mvt.utils as mvt_utils
 import utils.rvt_utils as rvt_utils
 
-from mvt.augmentation import apply_se3_aug_con, aug_utils
+from model.mvt.augmentation import apply_se3_aug_con, aug_utils
 from utils.dataset import _clip_encode_text
 from utils.lr_sched_utils import GradualWarmupScheduler
 
@@ -350,6 +350,7 @@ class RVTAgent:
 
         self.scaler = GradScaler(enabled=self.amp)
 
+
     def build(self, training: bool, device: torch.device = None):
         self._training = training
         self._device = device
@@ -387,9 +388,16 @@ class RVTAgent:
             after_scheduler=after_scheduler,
         )
 
+        self.load_clip()
+
     def load_clip(self):
         self.clip_model, self.clip_preprocess = clip.load("RN50", device=self._device)
         self.clip_model.eval()
+
+        for name, value in self.clip_model.named_parameters():
+            # if (name != 'fc.weight') and (name != 'fc.bias'):
+            value.requires_grad = False
+
 
     def unload_clip(self):
         del self.clip_model
@@ -415,7 +423,6 @@ class RVTAgent:
         :param device:
         """
         bs = batch_size
-        assert action_rot.shape == (bs, 4)
         assert action_grip.shape == (bs,), (action_grip, bs)
 
         action_rot_x_one_hot = torch.zeros(
@@ -433,7 +440,7 @@ class RVTAgent:
         # fill one-hots
         for b in range(bs):
             gt_rot = action_rot[b]
-            gt_rot = aug_utils.quaternion_to_discrete_euler(
+            gt_rot = aug_utils.discrete_euler(
                 gt_rot, self._rotation_resolution
             )
             action_rot_x_one_hot[b, gt_rot[0]] = 1
@@ -441,7 +448,7 @@ class RVTAgent:
             action_rot_z_one_hot[b, gt_rot[2]] = 1
 
             # grip
-            gt_grip = action_grip[b]
+            gt_grip = action_grip[b].long()
             action_grip_one_hot[b, gt_grip] = 1
 
             # ignore collision
@@ -518,50 +525,41 @@ class RVTAgent:
 
         # sample
 
-        action_ignore_collisions = replay_sample["ignore_collisions"][
-            :, -1
+        action_ignore_collisions = replay_sample["next_ignore_collision"][
+            :, None
         ].int()  # (b, 1) of int
-        action_gripper_pose = replay_sample["gripper_pose"][:, -1]  # (b, 7)
-        action_trans_con = action_gripper_pose[:, 0:3]  # (b, 3)
-        # rotation in quaternion xyzw
-        action_rot = action_gripper_pose[:, 3:7]  # (b, 4)
-        action_grip = replay_sample['next_gripper_state']  # (b,)
-        lang_goal_embs = replay_sample["lang_goal_embs"][:, -1].float()
-        tasks = replay_sample["tasks"]
+        # action_gripper_pose = replay_sample["gripper_pose"][:, -1]  # (b, 7)
+        action_trans_con = replay_sample['next_gripper_pos']  # (b, 3)
+        action_rot = replay_sample['next_gripper_rot']  # (b, 3)
+        action_grip = torch.round(replay_sample['next_gripper_state'])  # (b,)
+        pc = replay_sample['current_pts']
+        img_feat = replay_sample['current_cols']
 
         proprio = None
         return_out = {}
 
-        obs, pcd = peract_utils._preprocess_inputs(replay_sample, self.cameras)
-
         with torch.no_grad():
-            pc, img_feat = rvt_utils.get_pc_img_feat(
-                obs,
-                pcd,
-            )
 
-            if self._transform_augmentation and backprop:
-                action_trans_con, action_rot, pc = apply_se3_aug_con(
-                    pcd=pc,
-                    action_gripper_pose=action_gripper_pose,
-                    bounds=torch.tensor(self.scene_bounds),
-                    trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
-                    rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
-                )
-                action_trans_con = torch.tensor(action_trans_con).to(pc.device)
-                action_rot = torch.tensor(action_rot).to(pc.device)
+            lang_goal_embs = clip.tokenize(replay_sample['instruction']).to(self._device)
+            _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_embs)
+            lang_goal_embs = lang_goal_embs.float()
 
-            # TODO: vectorize
-            action_rot = action_rot.cpu().numpy()
-            for i, _action_rot in enumerate(action_rot):
-                _action_rot = aug_utils.normalize_quaternion(_action_rot)
-                if _action_rot[-1] < 0:
-                    _action_rot = -_action_rot
-                action_rot[i] = _action_rot
+            # if self._transform_augmentation and backprop:
+                # action_trans_con, action_rot, pc = apply_se3_aug_con(
+                #     pcd=pc,
+                #     action_gripper_pose=action_gripper_pose,
+                #     bounds=torch.tensor(self.scene_bounds),
+                #     trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
+                #     rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
+                # )
+                # action_trans_con = torch.tensor(action_trans_con).to(pc.device)
+                # action_rot = torch.tensor(action_rot).to(pc.device)
 
-            pc, img_feat = rvt_utils.move_pc_in_bound(
-                pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
-            )
+            # pc, img_feat = rvt_utils.move_pc_in_bound(
+            #     pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
+            # )
+
+            # we have already done this
             wpt = [x[:3] for x in action_trans_con]
 
             wpt_local = []
@@ -715,91 +713,91 @@ class RVTAgent:
 
         return return_out
 
-    @torch.no_grad()
-    def act(
-        self, step: int, observation: dict, deterministic=True, pred_distri=False
-    ) -> ActResult:
-        if self.add_lang:
-            lang_goal_tokens = observation.get("lang_goal_tokens", None).long()
-            _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_tokens[0])
-            lang_goal_embs = lang_goal_embs.float()
-        else:
-            lang_goal_embs = (
-                torch.zeros(observation["lang_goal_embs"].shape)
-                .float()
-                .to(self._device)
-            )
+    # @torch.no_grad()
+    # def act(
+    #     self, step: int, observation: dict, deterministic=True, pred_distri=False
+    # ) -> ActResult:
+    #     if self.add_lang:
+    #         lang_goal_tokens = observation.get("lang_goal_tokens", None).long()
+    #         _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_tokens[0])
+    #         lang_goal_embs = lang_goal_embs.float()
+    #     else:
+    #         lang_goal_embs = (
+    #             torch.zeros(observation["lang_goal_embs"].shape)
+    #             .float()
+    #             .to(self._device)
+    #         )
 
-        proprio = arm_utils.stack_on_channel(observation["low_dim_state"])
+    #     proprio = arm_utils.stack_on_channel(observation["low_dim_state"])
 
-        obs, pcd = peract_utils._preprocess_inputs(observation, self.cameras)
-        pc, img_feat = rvt_utils.get_pc_img_feat(
-            obs,
-            pcd,
-        )
+    #     obs, pcd = peract_utils._preprocess_inputs(observation, self.cameras)
+    #     pc, img_feat = rvt_utils.get_pc_img_feat(
+    #         obs,
+    #         pcd,
+    #     )
 
-        pc, img_feat = rvt_utils.move_pc_in_bound(
-            pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
-        )
+    #     pc, img_feat = rvt_utils.move_pc_in_bound(
+    #         pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
+    #     )
 
-        # TODO: Vectorize
-        pc_new = []
-        rev_trans = []
-        for _pc in pc:
-            a, b = mvt_utils.place_pc_in_cube(
-                _pc,
-                with_mean_or_bounds=self._place_with_mean,
-                scene_bounds=None if self._place_with_mean else self.scene_bounds,
-            )
-            pc_new.append(a)
-            rev_trans.append(b)
-        pc = pc_new
+    #     # TODO: Vectorize
+    #     pc_new = []
+    #     rev_trans = []
+    #     for _pc in pc:
+    #         a, b = mvt_utils.place_pc_in_cube(
+    #             _pc,
+    #             with_mean_or_bounds=self._place_with_mean,
+    #             scene_bounds=None if self._place_with_mean else self.scene_bounds,
+    #         )
+    #         pc_new.append(a)
+    #         rev_trans.append(b)
+    #     pc = pc_new
 
-        bs = len(pc)
-        nc = self._net_mod.num_img
-        h = w = self._net_mod.img_size
-        dyn_cam_info = None
+    #     bs = len(pc)
+    #     nc = self._net_mod.num_img
+    #     h = w = self._net_mod.img_size
+    #     dyn_cam_info = None
 
-        out = self._network(
-            pc=pc,
-            img_feat=img_feat,
-            proprio=proprio,
-            lang_emb=lang_goal_embs,
-            img_aug=0,  # no img augmentation while acting
-        )
-        _, rot_q, grip_q, collision_q, y_q, _ = self.get_q(
-            out, dims=(bs, nc, h, w), only_pred=True, get_q_trans=False
-        )
-        pred_wpt, pred_rot_quat, pred_grip, pred_coll = self.get_pred(
-            out, rot_q, grip_q, collision_q, y_q, rev_trans, dyn_cam_info
-        )
+    #     out = self._network(
+    #         pc=pc,
+    #         img_feat=img_feat,
+    #         proprio=proprio,
+    #         lang_emb=lang_goal_embs,
+    #         img_aug=0,  # no img augmentation while acting
+    #     )
+    #     _, rot_q, grip_q, collision_q, y_q, _ = self.get_q(
+    #         out, dims=(bs, nc, h, w), only_pred=True, get_q_trans=False
+    #     )
+    #     pred_wpt, pred_rot_quat, pred_grip, pred_coll = self.get_pred(
+    #         out, rot_q, grip_q, collision_q, y_q, rev_trans, dyn_cam_info
+    #     )
 
-        continuous_action = np.concatenate(
-            (
-                pred_wpt[0].cpu().numpy(),
-                pred_rot_quat[0],
-                pred_grip[0].cpu().numpy(),
-                pred_coll[0].cpu().numpy(),
-            )
-        )
-        if pred_distri:
-            x_distri = [
-                0,
-                0 * self._num_rotation_classes : 1 * self._num_rotation_classes,
-            ]
-            y_distri = rot_grip_q[
-                0,
-                1 * self._num_rotation_classes : 2 * self._num_rotation_classes,
-            ]
-            z_distri = rot_grip_q[
-                0,
-                2 * self._num_rotation_classes : 3 * self._num_rotation_classes,
-            ]
-            return ActResult(continuous_action), (
-                x_distri.cpu().numpy(),
-                y_distri.cpu().numpy(),
-                z_distri.cpu().numpy(),
-            )
+    #     continuous_action = np.concatenate(
+    #         (
+    #             pred_wpt[0].cpu().numpy(),
+    #             pred_rot_quat[0],
+    #             pred_grip[0].cpu().numpy(),
+    #             pred_coll[0].cpu().numpy(),
+    #         )
+    #     )
+    #     if pred_distri:
+    #         x_distri = [
+    #             0,
+    #             0 * self._num_rotation_classes : 1 * self._num_rotation_classes,
+    #         ]
+    #         y_distri = rot_grip_q[
+    #             0,
+    #             1 * self._num_rotation_classes : 2 * self._num_rotation_classes,
+    #         ]
+    #         z_distri = rot_grip_q[
+    #             0,
+    #             2 * self._num_rotation_classes : 3 * self._num_rotation_classes,
+    #         ]
+    #         return ActResult(continuous_action), (
+    #             x_distri.cpu().numpy(),
+    #             y_distri.cpu().numpy(),
+    #             z_distri.cpu().numpy(),
+    #         )
 
 
     def get_pred(

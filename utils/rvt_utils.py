@@ -14,10 +14,9 @@ from datetime import datetime
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from torch.nn.parallel import DistributedDataParallel as DDP
+# from torch.nn.parallel import DistributedDataParallel as DDP
 
-import rvt.utils.peract_utils as peract_utils
-from rvt.models.peract_official import PreprocessAgent2
+# from model.peract_official import PreprocessAgent2
 
 
 def get_pc_img_feat(obs, pcd, bounds=None):
@@ -250,54 +249,54 @@ RLBENCH_TASKS = [
 ]
 
 
-def load_agent(agent_path, agent=None, only_epoch=False):
-    if isinstance(agent, PreprocessAgent2):
-        assert not only_epoch
-        agent._pose_agent.load_weights(agent_path)
-        return 0
+# def load_agent(agent_path, agent=None, only_epoch=False):
+#     if isinstance(agent, PreprocessAgent2):
+#         assert not only_epoch
+#         agent._pose_agent.load_weights(agent_path)
+#         return 0
 
-    checkpoint = torch.load(agent_path, map_location="cpu")
-    epoch = checkpoint["epoch"]
+#     checkpoint = torch.load(agent_path, map_location="cpu")
+#     epoch = checkpoint["epoch"]
 
-    if not only_epoch:
-        if hasattr(agent, "_q"):
-            model = agent._q
-        elif hasattr(agent, "_network"):
-            model = agent._network
-        optimizer = agent._optimizer
-        lr_sched = agent._lr_sched
+#     if not only_epoch:
+#         if hasattr(agent, "_q"):
+#             model = agent._q
+#         elif hasattr(agent, "_network"):
+#             model = agent._network
+#         optimizer = agent._optimizer
+#         lr_sched = agent._lr_sched
 
-        if isinstance(model, DDP):
-            model = model.module
+#         if isinstance(model, DDP):
+#             model = model.module
 
-        try:
-            model.load_state_dict(checkpoint["model_state"])
-        except RuntimeError:
-            try:
-                print(
-                    "WARNING: loading states in mvt1. "
-                    "Be cautious if you are using a two stage network."
-                )
-                model.mvt1.load_state_dict(checkpoint["model_state"])
-            except RuntimeError:
-                print(
-                    "WARNING: loading states with strick=False! "
-                    "KNOW WHAT YOU ARE DOING!!"
-                )
-                model.load_state_dict(checkpoint["model_state"], strict=False)
+#         try:
+#             model.load_state_dict(checkpoint["model_state"])
+#         except RuntimeError:
+#             try:
+#                 print(
+#                     "WARNING: loading states in mvt1. "
+#                     "Be cautious if you are using a two stage network."
+#                 )
+#                 model.mvt1.load_state_dict(checkpoint["model_state"])
+#             except RuntimeError:
+#                 print(
+#                     "WARNING: loading states with strick=False! "
+#                     "KNOW WHAT YOU ARE DOING!!"
+#                 )
+#                 model.load_state_dict(checkpoint["model_state"], strict=False)
 
-        if "optimizer_state" in checkpoint:
-            optimizer.load_state_dict(checkpoint["optimizer_state"])
-        else:
-            print(
-                "WARNING: No optimizer_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
-            )
+#         if "optimizer_state" in checkpoint:
+#             optimizer.load_state_dict(checkpoint["optimizer_state"])
+#         else:
+#             print(
+#                 "WARNING: No optimizer_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
+#             )
 
-        if "lr_sched_state" in checkpoint:
-            lr_sched.load_state_dict(checkpoint["lr_sched_state"])
-        else:
-            print(
-                "WARNING: No lr_sched_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
-            )
+#         if "lr_sched_state" in checkpoint:
+#             lr_sched.load_state_dict(checkpoint["lr_sched_state"])
+#         else:
+#             print(
+#                 "WARNING: No lr_sched_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
+#             )
 
-    return epoch
+#     return epoch

@@ -1,4 +1,4 @@
-stage_two: True
+stage_two: False
 norm_corr: True
 rend_three_views: True
 use_point_renderer: True
@@ -13,3 +13,4 @@ rot_ver: 1
 st_wpt_loc_inp_no_noise: True
 wpt_img_aug: 0.0
 img_aug_2: 0.05
+# im_channels: 128

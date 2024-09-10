@@ -22,7 +22,7 @@ key_names = [
 def custom_collate(batch):
     result = {}
     for key in batch[0].keys():
-        if key.endswith('pts') or key.endswith('cols'):
+        if key.endswith('pts') or key.endswith('cols') or key.endswith('instruction'):
             # For keys ending with 'pts' or 'cols', keep as a list
             result[key] = [item[key] for item in batch]
         else:
@@ -41,6 +41,10 @@ class RobotDataset(Dataset):
         self.transform = transform
         self.episodes = []
         self.device = device
+
+        self.x_bounds = (0.1, 0.5)
+        self.y_bounds = (-0.2, 0.2)
+        self.z_bounds = (-0.2, 0.8)
         
         # Collect all episode files
         for task in os.listdir(root_dir):
@@ -74,7 +78,12 @@ class RobotDataset(Dataset):
         t = extrinsic[:3, 3] * 1.
         points_transformed = (R @ points.T).T + t
 
-        return points_transformed, colors
+        crop_mask = (points_transformed[:, 0] >= self.x_bounds[0]) & (points_transformed[:, 0] <= self.x_bounds[1]) & (points_transformed[:, 1] >= self.y_bounds[0]) \
+            & (points_transformed[:, 1] <= self.y_bounds[1]) & (points_transformed[:, 2] >= self.z_bounds[0]) & (points_transformed[:, 2] <= self.z_bounds[1])
+        cropped_points = points_transformed[crop_mask]
+        cropped_colors = colors[crop_mask]
+
+        return cropped_points, cropped_colors
         
     def __len__(self):
         return len(self.episodes)
@@ -101,6 +110,7 @@ class RobotDataset(Dataset):
         current_gripper_pos = current_frame['gripper_pose']['position']
         current_gripper_rot = current_frame['gripper_pose']['rotation']
         current_gripper_state = current_frame['gripper_state']
+        current_ignore_collision = int(current_frame['ignore_collision'])
         
         # Process next frame
         next_camera_data = next_frame['camera_data'][0]
@@ -108,9 +118,10 @@ class RobotDataset(Dataset):
         next_depth = next_camera_data['depth'] * 0.00025  # mm to m
         next_intrinsics = next_camera_data['intrinsics']
         next_extrinsics = next_camera_data['extrinsics']
-        next_ripper_pos = next_frame['gripper_pose']['position']
+        next_gripper_pos = next_frame['gripper_pose']['position']
         next_gripper_rot = next_frame['gripper_pose']['rotation']
         next_gripper_state = next_frame['gripper_state']
+        next_ignore_collision = int(next_frame['ignore_collision'])
         
         # Convert numpy arrays to PyTorch tensors
         current_color = torch.from_numpy(current_color.copy()).permute(2, 0, 1).float().to(self.device) / 255.0
@@ -126,9 +137,12 @@ class RobotDataset(Dataset):
         current_gripper_pos = torch.tensor(current_gripper_pos, dtype=torch.float, device=self.device)
         current_gripper_rot = torch.tensor(current_gripper_rot, dtype=torch.float, device=self.device)
         current_gripper_state = torch.tensor(current_gripper_state, dtype=torch.float, device=self.device)
-        next_ripper_pos = torch.tensor(next_ripper_pos, dtype=torch.float, device=self.device)
+        next_gripper_pos = torch.tensor(next_gripper_pos, dtype=torch.float, device=self.device)
         next_gripper_rot = torch.tensor(next_gripper_rot, dtype=torch.float, device=self.device)
         next_gripper_state = torch.tensor(next_gripper_state, dtype=torch.float, device=self.device)
+
+        current_ignore_collision = torch.tensor(current_ignore_collision, dtype=torch.float, device=self.device)
+        next_ignore_collision = torch.tensor(next_ignore_collision, dtype=torch.float, device=self.device)
 
         current_pts, current_cols = self.rgbd2pc(current_color, current_depth, current_intrinsics, current_extrinsics)
         next_pts, next_cols = self.rgbd2pc(next_color, next_depth, next_intrinsics, next_extrinsics)
@@ -139,6 +153,7 @@ class RobotDataset(Dataset):
             next_color = self.transform(next_color)
         
         return {
+            'instruction': instruction,
             'current_color': current_color,
             'current_depth': current_depth,
             'current_intrinsics': current_intrinsics,
@@ -154,9 +169,11 @@ class RobotDataset(Dataset):
             'current_gripper_pos': current_gripper_pos,
             'current_gripper_rot': current_gripper_rot,
             'current_gripper_state': current_gripper_state,
-            'next_ripper_pos': next_ripper_pos,
+            'next_gripper_pos': next_gripper_pos,
             'next_gripper_rot': next_gripper_rot,
-            'next_gripper_state': next_gripper_state
+            'next_gripper_state': next_gripper_state,
+            'current_ignore_collision': current_ignore_collision,
+            'next_ignore_collision': next_ignore_collision,
         }
 
 

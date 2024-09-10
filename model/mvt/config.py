@@ -8,7 +8,7 @@ _C = CN()
 
 _C.depth = 8
 _C.img_size = 220
-_C.add_proprio = True
+_C.add_proprio = False
 _C.proprio_dim = 4
 _C.add_lang = True
 _C.lang_dim = 512

@@ -121,6 +121,8 @@ class MVT(nn.Module):
         self.proprio_dim = proprio_dim
         self.img_size = img_size
 
+        del args['BoxRenderer']
+
         self.mvt1 = MVTSingle(
             **args,
             renderer=self.renderer,

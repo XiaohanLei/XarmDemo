@@ -2,8 +2,8 @@
 #
 # Licensed under the NVIDIA Source Code License [see LICENSE for details].
 
-from rvt.libs.peract.helpers.preprocess_agent import PreprocessAgent
-from rvt.libs.peract.agents.peract_bc.launch_utils import create_agent
+from libs.RVT.rvt.libs.peract.helpers.preprocess_agent import PreprocessAgent
+from libs.RVT.rvt.libs.peract.agents.peract_bc.launch_utils import create_agent
 
 
 class PreprocessAgent2(PreprocessAgent):

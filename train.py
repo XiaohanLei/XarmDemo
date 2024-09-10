@@ -9,11 +9,12 @@ import random
 import yaml
 import argparse
 
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 from collections import defaultdict
 from contextlib import redirect_stdout
 
 import torch
-import torch.multiprocessing as mp
 
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -26,12 +27,10 @@ import model.mvt.config as mvt_cfg_mod
 from utils.dataset_utils import get_dataset
 
 from model.mvt.mvt import MVT
-from model.rvt_agent import print_loss_log
 from utils.rvt_utils import (
     TensorboardManager,
     short_name,
     get_num_feat,
-    load_agent,
     RLBENCH_TASKS,
 )
 from utils.peract_utils import (
@@ -148,7 +147,7 @@ def experiment(cmd_args, devices):
 
     t_start = time.time()
 
-    train_dataset, _ = get_dataset(BATCH_SIZE_TRAIN)
+    train_dataset = get_dataset(BATCH_SIZE_TRAIN)
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
@@ -193,11 +192,6 @@ def experiment(cmd_args, devices):
 
     start_epoch = 0
     end_epoch = EPOCHS
-    if exp_cfg.resume != "":
-        agent_path = exp_cfg.resume
-        print(f"Recovering model and checkpoint from {exp_cfg.resume}")
-        epoch = load_agent(agent_path, agent, only_epoch=False)
-        start_epoch = epoch + 1
 
     if rank == 0:
         ## logging unchanged values to reproduce the same setting

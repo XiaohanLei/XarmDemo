@@ -44,6 +44,11 @@ def sensitive_gimble_fix(euler):
 
     return euler
 
+def discrete_euler(euler, resolution, gimble_fix=True):
+    disc = torch.round((euler / resolution)).long()
+    disc[disc == int(360 / resolution)] = 0
+    return disc.long()
+
 
 def quaternion_to_discrete_euler(quaternion, resolution, gimble_fix=True):
     """

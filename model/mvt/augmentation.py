@@ -4,8 +4,8 @@
 
 import numpy as np
 import torch
-import rvt.mvt.aug_utils as aug_utils
-from pytorch3d import transforms as torch3d_tf
+import model.mvt.aug_utils as aug_utils
+import libs.torch3d_transforms  as torch3d_tf
 from scipy.spatial.transform import Rotation
 
 

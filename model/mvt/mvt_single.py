@@ -170,11 +170,7 @@ class MVT(nn.Module):
         # patchified input dimensions
         spatial_size = img_size // self.img_patch_size  # 128 / 8 = 16
 
-        if self.add_proprio:
-            # 64 img features + 64 proprio features
-            self.input_dim_before_seq = self.im_channels * 2
-        else:
-            self.input_dim_before_seq = self.im_channels
+        self.input_dim_before_seq = self.im_channels * 2
 
         # learnable positional encoding
         if add_lang:
@@ -243,7 +239,7 @@ class MVT(nn.Module):
 
         self.patchify = Conv2DBlock(
             inp_pre_out_dim,
-            self.im_channels,
+            self.im_channels * 2,
             kernel_sizes=self.img_patch_size,
             strides=self.img_patch_size,
             norm="group",
@@ -444,7 +440,7 @@ class MVT(nn.Module):
             ins.view(
                 bs,
                 num_img,
-                self.im_channels,
+                self.im_channels * 2,
                 num_pat_img,
                 num_pat_img,
             )
