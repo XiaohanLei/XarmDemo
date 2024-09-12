@@ -218,11 +218,11 @@ def experiment(cmd_args, devices):
         if rank == 0:
             tb.update("train", i, out)
 
-        if rank == 0:
-            # TODO: add logic to only save some models
-            save_agent(agent, f"{log_dir}/model_{i}.pth", i)
-            save_agent(agent, f"{log_dir}/model_last.pth", i)
         i += 1
+
+
+    save_agent(agent, f"{log_dir}/model_{i}.pth", i)
+    save_agent(agent, f"{log_dir}/model_last.pth", i)
 
     if rank == 0:
         tb.close()

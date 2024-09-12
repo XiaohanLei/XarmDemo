@@ -54,6 +54,49 @@ from rvt.utils.rvt_utils import (
 from rvt.utils.rvt_utils import load_agent as load_agent_state
 
 
+
+# Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Licensed under the NVIDIA Source Code License [see LICENSE for details].
+
+import os
+import time
+import tqdm
+import random
+import yaml
+import argparse
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+from collections import defaultdict
+from contextlib import redirect_stdout
+
+import torch
+
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["BITSANDBYTES_NOWELCOME"] = "1"
+
+import config as exp_cfg_mod
+import model.rvt_agent as rvt_agent
+import model.mvt.config as mvt_cfg_mod
+
+from utils.dataset_utils import get_dataset
+
+from model.mvt.mvt import MVT
+from utils.rvt_utils import (
+    TensorboardManager,
+    short_name,
+    get_num_feat,
+    RLBENCH_TASKS,
+)
+from utils.peract_utils import (
+    CAMERAS,
+    SCENE_BOUNDS,
+    IMAGE_SIZE,
+)
+
+
 def load_agent(
     model_path=None,
     peract_official=False,
@@ -87,53 +130,8 @@ def load_agent(
 
         exp_cfg.freeze()
 
-        # create agent
-        if exp_cfg.agent == "original":
-            # initialize PerceiverIO Transformer
-            VOXEL_SIZES = [100]  # 100x100x100 voxels
-            NUM_LATENTS = 512  # PerceiverIO latents
-            BATCH_SIZE_TRAIN = 1
-            perceiver_encoder = PerceiverIO(
-                depth=6,
-                iterations=1,
-                voxel_size=VOXEL_SIZES[0],
-                initial_dim=3 + 3 + 1 + 3,
-                low_dim_size=4,
-                layer=0,
-                num_rotation_classes=72,
-                num_grip_classes=2,
-                num_collision_classes=2,
-                num_latents=NUM_LATENTS,
-                latent_dim=512,
-                cross_heads=1,
-                latent_heads=8,
-                cross_dim_head=64,
-                latent_dim_head=64,
-                weight_tie_layers=False,
-                activation="lrelu",
-                input_dropout=0.1,
-                attn_dropout=0.1,
-                decoder_dropout=0.0,
-                voxel_patch_size=5,
-                voxel_patch_stride=5,
-                final_dim=64,
-            )
 
-            # initialize PerceiverActor
-            agent = PerceiverActorAgent(
-                coordinate_bounds=SCENE_BOUNDS,
-                perceiver_encoder=perceiver_encoder,
-                camera_names=CAMERAS,
-                batch_size=BATCH_SIZE_TRAIN,
-                voxel_size=VOXEL_SIZES[0],
-                voxel_feature_size=3,
-                num_rotation_classes=72,
-                rotation_resolution=5,
-                image_resolution=[IMAGE_SIZE, IMAGE_SIZE],
-                transform_augmentation=False,
-                **exp_cfg.peract,
-            )
-        elif exp_cfg.agent == "our":
+        if exp_cfg.agent == "our":
             mvt_cfg = default_mvt_cfg.get_cfg_defaults()
             if mvt_cfg_path != None:
                 mvt_cfg.merge_from_file(mvt_cfg_path)

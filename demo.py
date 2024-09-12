@@ -8,6 +8,7 @@ import keyboard
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 from xarm.wrapper import XArmAPI
+import time
 
 class DataCollector:
     def __init__(self):
@@ -92,7 +93,8 @@ class DataCollector:
         gripper_pose = self.get_gripper_pose()  # 需要实现这个函数
         gripper_state = self.get_gripper_state()  # 需要实现这个函数
         
-        ignore_collision = input("是否忽略碰撞？(y/n): ").lower() == 'y'
+        # ignore_collision = input("是否忽略碰撞？(y/n): ").lower() == 'y'
+        ignore_collision = 0
         
         self.frame_count += 1
         frame_data = {
@@ -129,16 +131,20 @@ class DataCollector:
     def run(self):
         while True:
             task_instruction = input("请输入任务指令（或按Enter结束）：")
+            if task_instruction != 'c':
+                pre_task_instruction = task_instruction
             if not task_instruction:
                 break
             
-            self.start_task(task_instruction)
+            self.start_task(pre_task_instruction)
             
             while True:
                 if keyboard.is_pressed('f'):
                     self.record_keyframe()
+                    time.sleep(0.2)
                 elif keyboard.is_pressed('q'):
                     self.save_episode()
+                    time.sleep(0.2)
                     break
         
         print("数据收集完成")
