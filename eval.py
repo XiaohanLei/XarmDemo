@@ -2,56 +2,13 @@
 #
 # Licensed under the NVIDIA Source Code License [see LICENSE for details].
 
-import os
-import yaml
-import csv
-import torch
-import cv2
-import shutil
 
-import numpy as np
 
-from omegaconf import OmegaConf
-from multiprocessing import Value
-from tensorflow.python.summary.summary_iterator import summary_iterator
-from copy import deepcopy
+import model.mvt.config as default_mvt_cfg
+import model.rvt_agent as rvt_agent
+import config as default_exp_cfg
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["BITSANDBYTES_NOWELCOME"] = "1"
-
-from rlbench.backend import task as rlbench_task
-from rlbench.backend.utils import task_file_to_task_class
-from rlbench.action_modes.gripper_action_modes import Discrete
-from rlbench.action_modes.action_mode import MoveArmThenGripper
-from yarr.utils.rollout_generator import RolloutGenerator
-from yarr.utils.stat_accumulator import SimpleAccumulator
-from yarr.utils.log_writer import LogWriter
-from yarr.agents.agent import VideoSummary
-
-import rvt.mvt.config as default_mvt_cfg
-import rvt.models.rvt_agent as rvt_agent
-import rvt.config as default_exp_cfg
-
-from rvt.mvt.mvt import MVT
-from rvt.libs.peract.helpers import utils
-from rvt.utils.custom_rlbench_env import (
-    CustomMultiTaskRLBenchEnv2 as CustomMultiTaskRLBenchEnv,
-)
-from rvt.utils.peract_utils import (
-    CAMERAS,
-    SCENE_BOUNDS,
-    IMAGE_SIZE,
-    get_official_peract,
-)
-from rvt.utils.rlbench_planning import (
-    EndEffectorPoseViaPlanning2 as EndEffectorPoseViaPlanning,
-)
-from rvt.utils.rvt_utils import (
-    TensorboardManager,
-    get_eval_parser,
-    RLBENCH_TASKS,
-)
-from rvt.utils.rvt_utils import load_agent as load_agent_state
+from utils.rvt_utils import load_agent as load_agent_state
 
 
 
@@ -89,13 +46,113 @@ from utils.rvt_utils import (
     short_name,
     get_num_feat,
     RLBENCH_TASKS,
+    get_eval_parser
 )
 from utils.peract_utils import (
     CAMERAS,
     SCENE_BOUNDS,
     IMAGE_SIZE,
 )
+import pyrealsense2 as rs
+import numpy as np
+from xarm.wrapper import XArmAPI
 
+class Camera:
+    def __init__(self) -> None:
+        pipeline = rs.pipeline()
+        config = rs.config()
+        config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
+        config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+        pipeline.start(config)
+        self.pipeline.append(pipeline)
+        self.align.append(rs.align(rs.stream.color))
+        self.extrinsics.append(np.load('extrinsic.npy'))
+
+    def _capture_frame(self):
+        frames_data = []
+        for i, (pipeline, align) in enumerate(zip(self.pipeline, self.align)):
+            frames = pipeline.wait_for_frames()
+            aligned_frames = align.process(frames)
+            depth_frame = aligned_frames.get_depth_frame()
+            color_frame = aligned_frames.get_color_frame()
+            
+            depth_image = np.asanyarray(depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+            
+            if len(self.intrinsics) < self.num_cameras:
+                intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+                self.intrinsics.append(np.array([[intrinsics.fx, 0, intrinsics.ppx],
+                                                 [0, intrinsics.fy, intrinsics.ppy],
+                                                 [0, 0, 1]]))
+            
+            frames_data.append({
+                "color": color_image,
+                "depth": depth_image,
+                "intrinsics": self.intrinsics[i],
+                "extrinsics": self.extrinsics[i]
+            })
+        
+        return frames_data[0]
+    
+    def _rgbd2pc(self, color: np.ndarray, depth: np.ndarray, intrinsic: np.ndarray, extrinsic: np.ndarray):
+        '''
+        color: 3, h, w
+        depth: h, w
+        '''
+        h, w = depth.shape
+        i, j = np.meshgrid(np.arange(w), np.arange(h), indexing='xy')
+        z = depth * 1.
+        valid_mask = z > 0  # Check for valid depth values
+
+        x = (i - intrinsic[0, 2]) * z / intrinsic[0, 0]
+        y = (j - intrinsic[1, 2]) * z / intrinsic[1, 1]
+        points = np.stack((x, y, z), axis=-1).reshape(-1, 3)
+        colors = color.reshape(3, -1).T  # npts, 3
+
+        mask = valid_mask.reshape(-1) & (points[:, 2] <= 1)
+        points = points[mask]
+        colors = colors[mask]
+
+        R = extrinsic[:3, :3] * 1.
+        t = extrinsic[:3, 3] * 1.
+        points_transformed = (R @ points.T).T + t
+
+        crop_mask = (points_transformed[:, 0] >= self.x_bounds[0]) & (points_transformed[:, 0] <= self.x_bounds[1]) & \
+                    (points_transformed[:, 1] >= self.y_bounds[0]) & (points_transformed[:, 1] <= self.y_bounds[1]) & \
+                    (points_transformed[:, 2] >= self.z_bounds[0]) & (points_transformed[:, 2] <= self.z_bounds[1])
+        cropped_points = points_transformed[crop_mask]
+        cropped_colors = colors[crop_mask]
+
+        return cropped_points, cropped_colors
+    
+    def get_pc(self):
+        frame_data = self._capture_frame()
+        pts, cols = self._rgbd2pc(color=frame_data['color'][..., ::-1].transpose(2, 0, 1),
+                                  depth=frame_data['depth'] * 0.00025,
+                                  intrinsic=frame_data["intrinsics"],
+                                  extrinsic=frame_data['extrinsics'])
+        return pts, cols
+
+class Arm:
+    def __init__(self) -> None:
+        ip = '192.168.1.197'  
+        self.arm = XArmAPI(ip)
+        self.arm.motion_enable(enable=True)
+
+        self.arm.set_mode(0)
+        self.arm.set_state(0)
+        time.sleep(0.1)
+
+        self.arm.set_gripper_mode(0)
+        self.arm.set_gripper_enable(True)
+
+    def control(self, pos, rot, grip):
+        pos = pos * 1000
+        self.arm.set_position(*pos, *rot, is_radian=False, wait=True, speed=100)
+        if grip > 0.5:
+            self.arm.set_gripper_position(800, wait=True)
+        else:
+            self.arm.set_gripper_position(50, wait=True)
 
 def load_agent(
     model_path=None,
@@ -172,17 +229,6 @@ def load_agent(
         load_agent_state(model_path, agent)
         agent.eval()
 
-    elif peract_official:  # load official peract model, using the provided code
-        try:
-            model_folder = os.path.join(os.path.abspath(peract_model_dir), "..", "..")
-            train_cfg_path = os.path.join(model_folder, "config.yaml")
-            agent = get_official_peract(train_cfg_path, False, device, bs=1)
-        except FileNotFoundError:
-            print("Config file not found, trying to load again in our format")
-            train_cfg_path = "configs/peract_official_config.yaml"
-            agent = get_official_peract(train_cfg_path, False, device, bs=1)
-        agent.load_weights(peract_model_dir)
-        agent.eval()
 
     print("Agent Information")
     print(agent)
@@ -192,209 +238,23 @@ def load_agent(
 @torch.no_grad()
 def eval(
     agent,
-    tasks,
-    eval_datafolder,
-    start_episode=0,
-    eval_episodes=25,
-    episode_length=25,
-    replay_ground_truth=False,
-    device=0,
-    headless=True,
-    logging=False,
-    log_dir=None,
-    verbose=True,
-    save_video=False,
 ):
     agent.eval()
     if isinstance(agent, rvt_agent.RVTAgent):
         agent.load_clip()
 
-    camera_resolution = [IMAGE_SIZE, IMAGE_SIZE]
-    obs_config = utils.create_obs_config(CAMERAS, camera_resolution, method_name="")
+    # dataset = get_dataset(bs=1)
+    # for batch in dataset:
+    #     agent.act(batch)
+    cam = Camera()
+    arm = Arm()
+    pts, cols = cam.get_pc()
+    trans, rot, gripper = agent.act({
+        'current_pts': pts,
+        'current_cols': cols
+    })
+    arm.control(trans, rot, gripper)
 
-    gripper_mode = Discrete()
-    arm_action_mode = EndEffectorPoseViaPlanning()
-    action_mode = MoveArmThenGripper(arm_action_mode, gripper_mode)
-
-    task_files = [
-        t.replace(".py", "")
-        for t in os.listdir(rlbench_task.TASKS_PATH)
-        if t != "__init__.py" and t.endswith(".py")
-    ]
-
-    task_classes = []
-    if tasks[0] == "all":
-        tasks = RLBENCH_TASKS
-        if verbose:
-            print(f"evaluate on {len(tasks)} tasks: ", tasks)
-
-    for task in tasks:
-        if task not in task_files:
-            raise ValueError("Task %s not recognised!." % task)
-        task_classes.append(task_file_to_task_class(task))
-
-    eval_env = CustomMultiTaskRLBenchEnv(
-        task_classes=task_classes,
-        observation_config=obs_config,
-        action_mode=action_mode,
-        dataset_root=eval_datafolder,
-        episode_length=episode_length,
-        headless=headless,
-        swap_task_every=eval_episodes,
-        include_lang_goal_in_obs=True,
-        time_in_state=True,
-        record_every_n=1 if save_video else -1,
-    )
-
-    eval_env.eval = True
-
-    device = f"cuda:{device}"
-
-    if logging:
-        assert log_dir is not None
-
-        # create metric saving writer
-        csv_file = "eval_results.csv"
-        if not os.path.exists(os.path.join(log_dir, csv_file)):
-            with open(os.path.join(log_dir, csv_file), "w") as csv_fp:
-                fieldnames = ["task", "success rate", "length", "total_transitions"]
-                csv_writer = csv.DictWriter(csv_fp, fieldnames=fieldnames)
-                csv_writer.writeheader()
-
-    # evaluate agent
-    rollout_generator = RolloutGenerator(device)
-    stats_accumulator = SimpleAccumulator(eval_video_fps=30)
-
-    eval_env.launch()
-
-    current_task_id = -1
-
-    num_tasks = len(tasks)
-    step_signal = Value("i", -1)
-
-    scores = []
-    for task_id in range(num_tasks):
-        task_rewards = []
-        for ep in range(start_episode, start_episode + eval_episodes):
-            episode_rollout = []
-            generator = rollout_generator.generator(
-                step_signal=step_signal,
-                env=eval_env,
-                agent=agent,
-                episode_length=episode_length,
-                timesteps=1,
-                eval=True,
-                eval_demo_seed=ep,
-                record_enabled=False,
-                replay_ground_truth=replay_ground_truth,
-            )
-            try:
-                for replay_transition in generator:
-                    episode_rollout.append(replay_transition)
-            except StopIteration as e:
-                continue
-            except Exception as e:
-                eval_env.shutdown()
-                raise e
-
-            for transition in episode_rollout:
-                stats_accumulator.step(transition, True)
-                current_task_id = transition.info["active_task_id"]
-                assert current_task_id == task_id
-
-            task_name = tasks[task_id]
-            reward = episode_rollout[-1].reward
-            task_rewards.append(reward)
-            lang_goal = eval_env._lang_goal
-            if verbose:
-                print(
-                    f"Evaluating {task_name} | Episode {ep} | Score: {reward} | Episode Length: {len(episode_rollout)} | Lang Goal: {lang_goal}"
-                )
-
-        # report summaries
-        summaries = []
-        summaries.extend(stats_accumulator.pop())
-        task_name = tasks[task_id]
-        if logging:
-            # writer csv first
-            with open(os.path.join(log_dir, csv_file), "a") as csv_fp:
-                fieldnames = ["task", "success rate", "length", "total_transitions"]
-                csv_writer = csv.DictWriter(csv_fp, fieldnames=fieldnames)
-                csv_results = {"task": task_name}
-                for s in summaries:
-                    if s.name == "eval_envs/return":
-                        csv_results["success rate"] = s.value
-                    elif s.name == "eval_envs/length":
-                        csv_results["length"] = s.value
-                    elif s.name == "eval_envs/total_transitions":
-                        csv_results["total_transitions"] = s.value
-                    if "eval" in s.name:
-                        s.name = "%s/%s" % (s.name, task_name)
-                csv_writer.writerow(csv_results)
-        else:
-            for s in summaries:
-                if "eval" in s.name:
-                    s.name = "%s/%s" % (s.name, task_name)
-
-        if len(summaries) > 0:
-            task_score = [
-                s.value for s in summaries if f"eval_envs/return/{task_name}" in s.name
-            ][0]
-        else:
-            task_score = "unknown"
-
-        print(f"[Evaluation] Finished {task_name} | Final Score: {task_score}\n")
-
-        scores.append(task_score)
-
-        if save_video:
-            video_image_folder = "./tmp"
-            record_fps = 25
-            record_folder = os.path.join(log_dir, "videos")
-            os.makedirs(record_folder, exist_ok=True)
-            video_success_cnt = 0
-            video_fail_cnt = 0
-            video_cnt = 0
-            for summary in summaries:
-                if isinstance(summary, VideoSummary):
-                    video = deepcopy(summary.value)
-                    video = np.transpose(video, (0, 2, 3, 1))
-                    video = video[:, :, :, ::-1]
-                    if task_rewards[video_cnt] > 99:
-                        video_path = os.path.join(
-                            record_folder,
-                            f"{task_name}_success_{video_success_cnt}.mp4",
-                        )
-                        video_success_cnt += 1
-                    else:
-                        video_path = os.path.join(
-                            record_folder, f"{task_name}_fail_{video_fail_cnt}.mp4"
-                        )
-                        video_fail_cnt += 1
-                    video_cnt += 1
-                    os.makedirs(video_image_folder, exist_ok=True)
-                    for idx in range(len(video) - 10):
-                        cv2.imwrite(
-                            os.path.join(video_image_folder, f"{idx}.png"), video[idx]
-                        )
-                    images_path = os.path.join(video_image_folder, r"%d.png")
-                    os.system(
-                        "ffmpeg -i {} -vf palettegen palette.png -hide_banner -loglevel error".format(
-                            images_path
-                        )
-                    )
-                    os.system(
-                        "ffmpeg -framerate {} -i {} -i palette.png -lavfi paletteuse {} -hide_banner -loglevel error".format(
-                            record_fps, images_path, video_path
-                        )
-                    )
-                    os.remove("palette.png")
-                    shutil.rmtree(video_image_folder)
-
-    eval_env.shutdown()
-
-    if logging:
-        csv_fp.close()
 
     # set agent to back train mode
     agent.train()
@@ -404,7 +264,6 @@ def eval(
         agent.unload_clip()
         agent._network.free_mem()
 
-    return scores
 
 
 def get_model_index(filename):
@@ -421,7 +280,6 @@ def get_model_index(filename):
         index = None
     return index
 
-
 def _eval(args):
 
     model_paths = []
@@ -431,40 +289,7 @@ def _eval(args):
     else:
         model_paths.append(None)
 
-    # skipping evaluated models
-    if args.skip:
-        """
-        to_skip: {
-            0: {'light_bulb_in': False, .....}
-            1: {'light_bulb_in': False, .....}
-            .
-            .
-        }
-        """
-        to_skip = {
-            get_model_index(x): {y: False for y in args.tasks} for x in model_paths
-        }
-
-        filenames = os.listdir(args.eval_log_dir)
-        for filename in filenames:
-            if not filename.startswith("events.out.tfevents."):
-                continue
-            summ = summary_iterator(f"{args.eval_log_dir}/{filename}")
-            # skipping the time log of the summary
-            try:
-                next(summ)
-            except:
-                # moving to the next file
-                continue
-            for cur_summ in summ:
-                cur_task = cur_summ.summary.value[0].tag[5:]
-                cur_step = cur_summ.step
-                if cur_step in to_skip:
-                    to_skip[cur_step][cur_task] = True
-
-    tb = TensorboardManager(args.eval_log_dir)
     for model_path in model_paths:
-        tasks_to_eval = deepcopy(args.tasks)
 
         if args.peract_official:
             model_idx = 0
@@ -473,63 +298,18 @@ def _eval(args):
             if model_idx is None:
                 model_idx = 0
 
-        if args.skip:
-            for _task in args.tasks:
-                if to_skip[model_idx][_task]:
-                    tasks_to_eval.remove(_task)
-
-            if len(tasks_to_eval) == 0:
-                print(f"Skipping model_idx={model_idx} for args.tasks={args.tasks}")
-                continue
-
-        if not (args.peract_official):
-            agent = load_agent(
-                model_path=model_path,
-                exp_cfg_path=args.exp_cfg_path,
-                mvt_cfg_path=args.mvt_cfg_path,
-                eval_log_dir=args.eval_log_dir,
-                device=args.device,
-                use_input_place_with_mean=args.use_input_place_with_mean,
-            )
-
-            agent_eval_log_dir = os.path.join(
-                args.eval_log_dir, os.path.basename(model_path).split(".")[0]
-            )
-        else:
-            agent = load_agent(
-                peract_official=args.peract_official,
-                peract_model_dir=args.peract_model_dir,
-                device=args.device,
-                use_input_place_with_mean=args.use_input_place_with_mean,
-            )
-            agent_eval_log_dir = os.path.join(args.eval_log_dir, "final")
-
-        os.makedirs(agent_eval_log_dir, exist_ok=True)
-        scores = eval(
-            agent=agent,
-            tasks=tasks_to_eval,
-            eval_datafolder=args.eval_datafolder,
-            start_episode=args.start_episode,
-            eval_episodes=args.eval_episodes,
-            episode_length=args.episode_length,
-            replay_ground_truth=args.ground_truth,
+        agent = load_agent(
+            model_path=model_path,
+            exp_cfg_path=args.exp_cfg_path,
+            mvt_cfg_path=args.mvt_cfg_path,
+            eval_log_dir=args.eval_log_dir,
             device=args.device,
-            headless=args.headless,
-            logging=True,
-            log_dir=agent_eval_log_dir,
-            verbose=True,
-            save_video=args.save_video,
+            use_input_place_with_mean=args.use_input_place_with_mean,
         )
-        print(f"model {model_path}, scores {scores}")
-        task_scores = {}
-        for i in range(len(tasks_to_eval)):
-            task_scores[tasks_to_eval[i]] = scores[i]
+        eval(agent)
 
-        print("save ", task_scores)
-        tb.update("eval", model_idx, task_scores)
-        tb.writer.flush()
 
-    tb.close()
+
 
 
 if __name__ == "__main__":
@@ -550,5 +330,6 @@ if __name__ == "__main__":
     # save the arguments for future reference
     with open(os.path.join(args.eval_log_dir, "eval_config.yaml"), "w") as fp:
         yaml.dump(args.__dict__, fp)
+
 
     _eval(args)

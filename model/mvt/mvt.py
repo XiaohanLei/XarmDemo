@@ -13,6 +13,10 @@ import model.mvt.utils as mvt_utils
 from model.mvt.mvt_single import MVT as MVTSingle
 from model.mvt.config import get_cfg_defaults
 
+import open3d as o3d
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 class MVT(nn.Module):
     def __init__(
@@ -287,6 +291,15 @@ class MVT(nn.Module):
         :param rot_x_y: (bs, 2) rotation in x and y direction
         """
 
+        # Convert point cloud and colors to numpy arrays
+        # pc_np = pc[0].clone().cpu().numpy()
+        # col_np = img_feat[0].clone().cpu().numpy()
+        # # Create Open3D point cloud
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(pc_np)
+        # pcd.colors = o3d.utility.Vector3dVector(col_np[:, :3])  # Assuming the first 3 channels are RGB
+        # o3d.visualization.draw_geometries([pcd])
+
         with torch.no_grad():
             if self.training and (self.img_aug_2 != 0):
                 for x in img_feat:
@@ -301,6 +314,18 @@ class MVT(nn.Module):
                 mvt1_or_mvt2=True,
                 dyn_cam_info=None,
             )
+
+
+            # bs_v, num_img_v, img_feat_dim_v, h_v, w_v = img.shape
+            # img_vis = img.clone().view(bs_v * num_img_v, img_feat_dim_v, h_v, w_v).cpu()
+            # # Visualize rendered images using matplotlib
+            # fig, axes = plt.subplots(1, len(img_vis), figsize=(5*len(img_vis), 5))
+            # for i, ax in enumerate(axes):
+            #     ax.imshow(img_vis[i, 3:6, ...].permute(1, 2, 0).numpy())
+            #     ax.axis('off')
+            #     ax.set_title(f'Rendered Image {i}')
+            # plt.tight_layout()
+            # plt.show()
 
         if self.training:
             wpt_local_stage_one = wpt_local

@@ -708,25 +708,80 @@ class RVTAgent:
                 "collision_loss": collision_loss.item(),
                 "lr": self._optimizer.param_groups[0]["lr"],
             }
+            print(loss_log)
             manage_loss_log(self, loss_log, reset_log=reset_log)
             return_out.update(loss_log)
 
         return return_out
 
-    # @torch.no_grad()
-    # def act(
-    #     self, step: int, observation: dict, deterministic=True, pred_distri=False
-    # ) -> ActResult:
-    #     if self.add_lang:
-    #         lang_goal_tokens = observation.get("lang_goal_tokens", None).long()
-    #         _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_tokens[0])
-    #         lang_goal_embs = lang_goal_embs.float()
-    #     else:
-    #         lang_goal_embs = (
-    #             torch.zeros(observation["lang_goal_embs"].shape)
-    #             .float()
-    #             .to(self._device)
-    #         )
+    @torch.no_grad()
+    def act(
+        self, replay_sample: dict
+    ):
+
+        pc = replay_sample['current_pts']
+        img_feat = replay_sample['current_cols']
+
+        proprio = None
+        return_out = {}
+
+        with torch.no_grad():
+
+            lang_goal_embs = clip.tokenize(replay_sample['instruction']).to(self._device)
+            _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_embs)
+            lang_goal_embs = lang_goal_embs.float()
+
+            # pc, img_feat = rvt_utils.move_pc_in_bound(
+            #     pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
+            # )
+
+            pc_new = []
+            rev_trans = []
+            for _pc in pc:
+                a, b = mvt_utils.place_pc_in_cube(
+                    _pc,
+                    with_mean_or_bounds=self._place_with_mean,
+                    scene_bounds=None if self._place_with_mean else self.scene_bounds,
+                )
+                pc_new.append(a)
+                rev_trans.append(b)
+            pc = pc_new
+
+            bs = len(pc)
+            nc = self._net_mod.num_img
+            h = w = self._net_mod.img_size
+
+            out = self._network(
+                pc=pc,
+                img_feat=img_feat,
+                proprio=proprio,
+                lang_emb=lang_goal_embs,
+                img_aug=0,
+            )
+
+        _, rot_q, grip_q, collision_q, y_q, _ = self.get_q(
+            out, dims=(bs, nc, h, w), only_pred=True, get_q_trans=False
+        )
+        pred_wpt, pred_rot, pred_grip, pred_coll = self.get_pred(
+            out, rot_q, grip_q, collision_q, y_q, rev_trans, None
+        )
+
+        import open3d as o3d
+        pts = replay_sample['current_pts'][0].cpu().numpy()
+        cols = replay_sample['current_cols'][0].cpu().numpy()
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.colors = o3d.utility.Vector3dVector(cols)
+        wpt = pred_wpt.cpu().numpy()[0]
+        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3).translate(wpt[:, None])
+        o3d.visualization.draw_geometries([pcd, coor])
+
+        print(pred_wpt)
+        print(pred_rot)
+        print(pred_grip)
+
+        return pred_wpt.cpu().numpy()[0], pred_rot.cpu().numpy()[0], pred_grip.cpu().numpy()[0]
+
 
     #     proprio = arm_utils.stack_on_channel(observation["low_dim_state"])
 
@@ -842,13 +897,13 @@ class RVTAgent:
             ),
             dim=-1,
         )
-        pred_rot_quat = aug_utils.discrete_euler_to_quaternion(
+        pred_rot_euler = aug_utils.discrete_euler_to_euler(
             pred_rot.cpu(), self._rotation_resolution
         )
         pred_grip = grip_q.argmax(1, keepdim=True)
         pred_coll = collision_q.argmax(1, keepdim=True)
 
-        return pred_wpt, pred_rot_quat, pred_grip, pred_coll
+        return pred_wpt, pred_rot_euler, pred_grip, pred_coll
 
     @torch.no_grad()
     def get_action_trans(

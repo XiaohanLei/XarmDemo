@@ -14,10 +14,10 @@ CAMERAS = ["front", "left_shoulder", "right_shoulder", "wrist"]
 SCENE_BOUNDS = [
     0.1,
     0.5,
+    -0.4,
+    0.4,
     -0.2,
-    0.2,
-    -0.2,
-    0.8,
+    1.4,
 ]  # [x_min, y_min, z_min, x_max, y_max, z_max] - the metric volume to be voxelized
 IMAGE_SIZE = 128
 VOXEL_SIZES = [100]  # 100x100x100 voxels

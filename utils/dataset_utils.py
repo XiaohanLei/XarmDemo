@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
+from scipy.spatial.transform import Rotation
 
 key_names = [
     'current_color',
@@ -43,8 +44,8 @@ class RobotDataset(Dataset):
         self.device = device
 
         self.x_bounds = (0.1, 0.5)
-        self.y_bounds = (-0.2, 0.2)
-        self.z_bounds = (-0.2, 0.8)
+        self.y_bounds = (-0.4, 0.4)
+        self.z_bounds = (-0.2, 1.4)
         
         # Collect all episode files
         for task in os.listdir(root_dir):
@@ -84,15 +85,24 @@ class RobotDataset(Dataset):
         cropped_colors = colors[crop_mask]
 
         return cropped_points, cropped_colors
+
+    def process_euler(self, rot):
+        r = Rotation.from_euler("xyz", rot, degrees=True)
+        euler = r.as_euler("xyz", degrees=True)
+        return euler
         
     def __len__(self):
         return len(self.episodes)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, overlap_extrinsic=True):
         episode_path = self.episodes[idx]
         data = np.load(episode_path, allow_pickle=True)
         frames = data['frames']
         instruction = str(data['instruction'])
+        if overlap_extrinsic:
+            extrinsics = np.load('calibration/extrinsic.npy')
+        else:
+            extrinsics = current_frame['camera_data'][0]['extrinsics']
         
         # Randomly select a frame index (except the last one)
         frame_idx = np.random.randint(0, len(frames) - 1)
@@ -106,9 +116,10 @@ class RobotDataset(Dataset):
         current_color = current_camera_data['color'][..., ::-1]  # BGR to RGB
         current_depth = current_camera_data['depth'] * 0.00025  # mm to m
         current_intrinsics = current_camera_data['intrinsics']
-        current_extrinsics = current_camera_data['extrinsics']
+        current_extrinsics = extrinsics * 1.
         current_gripper_pos = current_frame['gripper_pose']['position']
         current_gripper_rot = current_frame['gripper_pose']['rotation']
+        current_gripper_rot = self.process_euler(current_gripper_rot)
         current_gripper_state = current_frame['gripper_state']
         current_ignore_collision = int(current_frame['ignore_collision'])
         
@@ -117,9 +128,10 @@ class RobotDataset(Dataset):
         next_color = next_camera_data['color'][..., ::-1]  # BGR to RGB
         next_depth = next_camera_data['depth'] * 0.00025  # mm to m
         next_intrinsics = next_camera_data['intrinsics']
-        next_extrinsics = next_camera_data['extrinsics']
+        next_extrinsics = extrinsics * 1.
         next_gripper_pos = next_frame['gripper_pose']['position']
         next_gripper_rot = next_frame['gripper_pose']['rotation']
+        next_gripper_rot = self.process_euler(next_gripper_rot)
         next_gripper_state = next_frame['gripper_state']
         next_ignore_collision = int(next_frame['ignore_collision'])
         

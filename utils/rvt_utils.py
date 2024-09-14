@@ -54,30 +54,43 @@ def get_pc_img_feat(obs, pcd, bounds=None):
     return pc, img_feat
 
 
-def move_pc_in_bound(pc, img_feat, bounds, no_op=False):
+import torch
+
+def move_pc_in_bound(pc_list, img_feat_list, bounds, no_op=False):
     """
+    :param pc_list: List of point clouds, each with shape (n, 3)
+    :param img_feat_list: List of image features corresponding to each point cloud
+    :param bounds: Tuple of (x_min, y_min, z_min, x_max, y_max, z_max)
     :param no_op: no operation
     """
     if no_op:
-        return pc, img_feat
+        return pc_list, img_feat_list
 
     x_min, y_min, z_min, x_max, y_max, z_max = bounds
-    inv_pnt = (
-        (pc[:, :, 0] < x_min)
-        | (pc[:, :, 0] > x_max)
-        | (pc[:, :, 1] < y_min)
-        | (pc[:, :, 1] > y_max)
-        | (pc[:, :, 2] < z_min)
-        | (pc[:, :, 2] > z_max)
-        | torch.isnan(pc[:, :, 0])
-        | torch.isnan(pc[:, :, 1])
-        | torch.isnan(pc[:, :, 2])
-    )
 
-    # TODO: move from a list to a better batched version
-    pc = [pc[i, ~_inv_pnt] for i, _inv_pnt in enumerate(inv_pnt)]
-    img_feat = [img_feat[i, ~_inv_pnt] for i, _inv_pnt in enumerate(inv_pnt)]
-    return pc, img_feat
+    new_pc_list = []
+    new_img_feat_list = []
+
+    for pc, img_feat in zip(pc_list, img_feat_list):
+        inv_pnt = (
+            (pc[:, 0] < x_min)
+            | (pc[:, 0] > x_max)
+            | (pc[:, 1] < y_min)
+            | (pc[:, 1] > y_max)
+            | (pc[:, 2] < z_min)
+            | (pc[:, 2] > z_max)
+            | torch.isnan(pc[:, 0])
+            | torch.isnan(pc[:, 1])
+            | torch.isnan(pc[:, 2])
+        )
+
+        new_pc = pc[~inv_pnt]
+        new_img_feat = img_feat[~inv_pnt] if img_feat is not None else None
+
+        new_pc_list.append(new_pc)
+        new_img_feat_list.append(new_img_feat)
+
+    return new_pc_list, new_img_feat_list
 
 
 def count_parameters(model):
@@ -249,54 +262,47 @@ RLBENCH_TASKS = [
 ]
 
 
-# def load_agent(agent_path, agent=None, only_epoch=False):
-#     if isinstance(agent, PreprocessAgent2):
-#         assert not only_epoch
-#         agent._pose_agent.load_weights(agent_path)
-#         return 0
+def load_agent(agent_path, agent=None, only_epoch=False):
 
-#     checkpoint = torch.load(agent_path, map_location="cpu")
-#     epoch = checkpoint["epoch"]
+    checkpoint = torch.load(agent_path, map_location="cpu")
+    epoch = checkpoint["epoch"]
 
-#     if not only_epoch:
-#         if hasattr(agent, "_q"):
-#             model = agent._q
-#         elif hasattr(agent, "_network"):
-#             model = agent._network
-#         optimizer = agent._optimizer
-#         lr_sched = agent._lr_sched
+    if not only_epoch:
+        if hasattr(agent, "_q"):
+            model = agent._q
+        elif hasattr(agent, "_network"):
+            model = agent._network
+        optimizer = agent._optimizer
+        lr_sched = agent._lr_sched
 
-#         if isinstance(model, DDP):
-#             model = model.module
+        try:
+            model.load_state_dict(checkpoint["model_state"])
+        except RuntimeError:
+            try:
+                print(
+                    "WARNING: loading states in mvt1. "
+                    "Be cautious if you are using a two stage network."
+                )
+                model.mvt1.load_state_dict(checkpoint["model_state"])
+            except RuntimeError:
+                print(
+                    "WARNING: loading states with strick=False! "
+                    "KNOW WHAT YOU ARE DOING!!"
+                )
+                model.load_state_dict(checkpoint["model_state"], strict=False)
 
-#         try:
-#             model.load_state_dict(checkpoint["model_state"])
-#         except RuntimeError:
-#             try:
-#                 print(
-#                     "WARNING: loading states in mvt1. "
-#                     "Be cautious if you are using a two stage network."
-#                 )
-#                 model.mvt1.load_state_dict(checkpoint["model_state"])
-#             except RuntimeError:
-#                 print(
-#                     "WARNING: loading states with strick=False! "
-#                     "KNOW WHAT YOU ARE DOING!!"
-#                 )
-#                 model.load_state_dict(checkpoint["model_state"], strict=False)
+        if "optimizer_state" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state"])
+        else:
+            print(
+                "WARNING: No optimizer_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
+            )
 
-#         if "optimizer_state" in checkpoint:
-#             optimizer.load_state_dict(checkpoint["optimizer_state"])
-#         else:
-#             print(
-#                 "WARNING: No optimizer_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
-#             )
+        if "lr_sched_state" in checkpoint:
+            lr_sched.load_state_dict(checkpoint["lr_sched_state"])
+        else:
+            print(
+                "WARNING: No lr_sched_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
+            )
 
-#         if "lr_sched_state" in checkpoint:
-#             lr_sched.load_state_dict(checkpoint["lr_sched_state"])
-#         else:
-#             print(
-#                 "WARNING: No lr_sched_state in checkpoint" "KNOW WHAT YOU ARE DOING!!"
-#             )
-
-#     return epoch
+    return epoch

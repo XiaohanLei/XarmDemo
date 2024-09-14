@@ -1,0 +1,1 @@
+python train.py --exp_cfg_path configs/rvt2.yaml --mvt_cfg_path model/mvt/configs/rvt2.yaml
