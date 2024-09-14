@@ -59,6 +59,17 @@ from xarm.wrapper import XArmAPI
 
 class Camera:
     def __init__(self) -> None:
+        self.cameras = []
+        self.pipeline = []
+        self.align = []
+        self.intrinsics = []
+        self.extrinsics = []
+        self.num_cameras = 1
+
+        self.x_bounds = (0.1, 0.5)
+        self.y_bounds = (-0.4, 0.4)
+        self.z_bounds = (-0.2, 1.4)
+
         pipeline = rs.pipeline()
         config = rs.config()
         config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
@@ -127,7 +138,7 @@ class Camera:
     
     def get_pc(self):
         frame_data = self._capture_frame()
-        pts, cols = self._rgbd2pc(color=frame_data['color'][..., ::-1].transpose(2, 0, 1),
+        pts, cols = self._rgbd2pc(color=frame_data['color'][..., ::-1].transpose(2, 0, 1) / 255.,
                                   depth=frame_data['depth'] * 0.00025,
                                   intrinsic=frame_data["intrinsics"],
                                   extrinsic=frame_data['extrinsics'])
@@ -249,9 +260,13 @@ def eval(
     cam = Camera()
     arm = Arm()
     pts, cols = cam.get_pc()
+    print(pts.shape, cols.shape)
+    pts = torch.tensor(pts).cuda().float()
+    cols = torch.tensor(cols).cuda().float()
     trans, rot, gripper = agent.act({
-        'current_pts': pts,
-        'current_cols': cols
+        'current_pts': [pts],
+        'current_cols': [cols],
+        'instruction': 'lift the orange block',
     })
     arm.control(trans, rot, gripper)
 
