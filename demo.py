@@ -24,8 +24,10 @@ class DataCollector:
         for i in range(self.num_cameras):
             pipeline = rs.pipeline()
             config = rs.config()
-            config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
-            config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+            # config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
+            # config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+            config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+            config.enable_stream(rs.stream.color, 960, 540, rs.format.bgr8, 30)
             pipeline.start(config)
             self.pipeline.append(pipeline)
             self.align.append(rs.align(rs.stream.color))
