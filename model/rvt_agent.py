@@ -544,20 +544,21 @@ class RVTAgent:
             _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_embs)
             lang_goal_embs = lang_goal_embs.float()
 
-            # if self._transform_augmentation and backprop:
-                # action_trans_con, action_rot, pc = apply_se3_aug_con(
-                #     pcd=pc,
-                #     action_gripper_pose=action_gripper_pose,
-                #     bounds=torch.tensor(self.scene_bounds),
-                #     trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
-                #     rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
-                # )
-                # action_trans_con = torch.tensor(action_trans_con).to(pc.device)
-                # action_rot = torch.tensor(action_rot).to(pc.device)
+            if self._transform_augmentation and backprop:
+                action_trans_con, action_rot, pc = apply_se3_aug_con(
+                    pcd=pc,
+                    action_trans_con=action_trans_con,
+                    action_rot=action_rot,
+                    bounds=torch.tensor(self.scene_bounds),
+                    trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
+                    rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
+                )
+                action_trans_con = torch.tensor(action_trans_con).to(pc[0].device)
+                action_rot = torch.tensor(action_rot).to(pc[0].device)
 
-            # pc, img_feat = rvt_utils.move_pc_in_bound(
-            #     pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
-            # )
+            pc, img_feat = rvt_utils.move_pc_in_bound(
+                pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
+            )
 
             # we have already done this
             wpt = [x[:3] for x in action_trans_con]
@@ -640,6 +641,54 @@ class RVTAgent:
             action_trans = self.get_action_trans(
                 wpt_local, pts, out, dyn_cam_info, dims=(bs, nc, h, w)
             )
+            # print(torch.max(action_trans, dim=1))
+            
+
+            debug_vis = False
+            if debug_vis:
+                import matplotlib.pyplot as plt
+                import numpy as np
+                import cv2
+                img_vis = out['img_vis']
+                trans_vis = action_trans.clone()
+                trans_vis = trans_vis.view(bs, h, w, nc)
+                trans_vis = trans_vis.permute(0, 3, 1, 2) 
+                # print(torch.max(trans_vis.view(bs, nc, h*w), dim=-1))
+                # print(trans_vis.shape)
+                bs_t, num_img_t, sr_h_t, sr_w_t = trans_vis.shape
+                trans_vis = trans_vis.detach().view(bs_t * num_img_t, sr_h_t, sr_w_t).cpu()
+
+                fig, axes = plt.subplots(3, 4, figsize=(30, 20))
+
+                for i in range(6):
+                    row = i // 2
+                    col = (i % 2) * 2
+
+                    # Heatmap
+                    heatmap = trans_vis[i].numpy()
+                    axes[row, col].imshow(heatmap, cmap='jet')
+                    axes[row, col].set_title(f'Heatmap {i+1}', fontsize=14)
+                    axes[row, col].axis('off')
+
+                    # Overlay
+                    rgb_img_np = img_vis[i, 3:6, ...].permute(1, 2, 0).numpy()
+                    heatmap_h, heatmap_w = heatmap.shape
+
+                    # Resize rgb_img_np to match heatmap dimensions
+                    rgb_img_np = cv2.resize(rgb_img_np, (heatmap_w, heatmap_h), interpolation=cv2.INTER_LINEAR)
+
+                    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min()) 
+                    heatmap_colored = plt.cm.jet(heatmap)[:, :, :3]
+                    alpha = 0.4
+                    overlay = rgb_img_np * (1 - alpha) + heatmap_colored * alpha
+                    overlay = np.clip(overlay, 0, 1)
+
+                    axes[row, col+1].imshow(overlay)
+                    axes[row, col+1].set_title(f'Overlay {i+1}', fontsize=14)
+                    axes[row, col+1].axis('off')
+
+                plt.tight_layout()
+                plt.show()
 
         loss_log = {}
         if backprop:
@@ -937,6 +986,7 @@ class RVTAgent:
 
         # (bs, num_img, 2)
         wpt_img = wpt_img.squeeze(1)
+        # print(wpt_img)
 
         action_trans = mvt_utils.generate_hm_from_pt(
             wpt_img.reshape(-1, 2),

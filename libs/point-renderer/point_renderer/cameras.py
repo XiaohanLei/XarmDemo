@@ -84,7 +84,10 @@ class OrthographicCameras(Cameras):
             OrthographicCamera
         """
         if isinstance(img_sizes_w, list):
-            img_sizes_w = torch.tensor(img_sizes_w, device=device)[None, :].repeat((len(eyes), 1))
+            if len(img_sizes_w) == 2:
+                img_sizes_w = torch.tensor(img_sizes_w, device=device)[None, :].repeat((len(eyes), 1))
+            else:
+                img_sizes_w = torch.tensor(img_sizes_w, device=device)
 
         cam_poses = []
         for eye, at, up in zip(eyes, ats, ups):

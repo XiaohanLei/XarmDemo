@@ -55,7 +55,12 @@ from utils.peract_utils import (
 )
 import pyrealsense2 as rs
 import numpy as np
-from xarm.wrapper import XArmAPI
+try:
+    from xarm.wrapper import XArmAPI
+    enable_xarm = True
+except:
+    enable_xarm = False
+    print('no xarm, simulator')
 
 class Camera:
     def __init__(self) -> None:
@@ -254,11 +259,12 @@ def eval(
     if isinstance(agent, rvt_agent.RVTAgent):
         agent.load_clip()
 
-    # dataset = get_dataset(bs=1)
-    # for batch in dataset:
-    #     agent.act(batch)
+    dataset = get_dataset(bs=1)
+    for batch in dataset:
+        agent.act(batch)
     cam = Camera()
-    arm = Arm()
+    if enable_xarm:
+        arm = Arm()
     pts, cols = cam.get_pc()
     print(pts.shape, cols.shape)
     pts = torch.tensor(pts).cuda().float()
@@ -268,7 +274,8 @@ def eval(
         'current_cols': [cols],
         'instruction': 'lift the orange block',
     })
-    arm.control(trans, rot, gripper)
+    if enable_xarm:
+        arm.control(trans, rot, gripper)
 
 
     # set agent to back train mode

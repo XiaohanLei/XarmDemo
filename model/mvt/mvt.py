@@ -17,6 +17,8 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import numpy as np
 
+import cv2
+
 
 class MVT(nn.Module):
     def __init__(
@@ -291,14 +293,7 @@ class MVT(nn.Module):
         :param rot_x_y: (bs, 2) rotation in x and y direction
         """
 
-        # Convert point cloud and colors to numpy arrays
-        # pc_np = pc[0].clone().cpu().numpy()
-        # col_np = img_feat[0].clone().cpu().numpy()
-        # # Create Open3D point cloud
-        # pcd = o3d.geometry.PointCloud()
-        # pcd.points = o3d.utility.Vector3dVector(pc_np)
-        # pcd.colors = o3d.utility.Vector3dVector(col_np[:, :3])  # Assuming the first 3 channels are RGB
-        # o3d.visualization.draw_geometries([pcd])
+        debug_vis = True
 
         with torch.no_grad():
             if self.training and (self.img_aug_2 != 0):
@@ -315,17 +310,17 @@ class MVT(nn.Module):
                 dyn_cam_info=None,
             )
 
-
-            # bs_v, num_img_v, img_feat_dim_v, h_v, w_v = img.shape
-            # img_vis = img.clone().view(bs_v * num_img_v, img_feat_dim_v, h_v, w_v).cpu()
-            # # Visualize rendered images using matplotlib
-            # fig, axes = plt.subplots(1, len(img_vis), figsize=(5*len(img_vis), 5))
-            # for i, ax in enumerate(axes):
-            #     ax.imshow(img_vis[i, 3:6, ...].permute(1, 2, 0).numpy())
-            #     ax.axis('off')
-            #     ax.set_title(f'Rendered Image {i}')
-            # plt.tight_layout()
-            # plt.show()
+            if debug_vis:
+                bs_v, num_img_v, img_feat_dim_v, h_v, w_v = img.shape
+                img_vis = img.clone().view(bs_v * num_img_v, img_feat_dim_v, h_v, w_v).cpu()
+                # Visualize rendered images using matplotlib
+                fig, axes = plt.subplots(1, len(img_vis), figsize=(5*len(img_vis), 5))
+                for i, ax in enumerate(axes):
+                    ax.imshow(img_vis[i, 3:6, ...].permute(1, 2, 0).numpy())
+                    ax.axis('off')
+                    ax.set_title(f'Rendered Image {i}')
+                plt.tight_layout()
+                plt.show()
 
         if self.training:
             wpt_local_stage_one = wpt_local
@@ -341,6 +336,44 @@ class MVT(nn.Module):
             rot_x_y=rot_x_y,
             **kwargs,
         )
+
+        if debug_vis:
+
+            out['img_vis'] = img_vis
+
+            trans_vis = out['trans'].clone()
+            bs_t, num_img_t, sr_h_t, sr_w_t = trans_vis.shape
+            trans_vis = trans_vis.detach().view(bs_t * num_img_t, sr_h_t, sr_w_t).cpu()
+
+            fig, axes = plt.subplots(len(trans_vis), 2, figsize=(10, 5*len(trans_vis)))
+            fig.suptitle("Heatmaps and Overlays")
+
+            for i in range(len(trans_vis)):
+                # Heatmap
+                heatmap = trans_vis[i].numpy()
+                axes[i, 0].imshow(heatmap, cmap='jet')
+                axes[i, 0].set_title(f'Heatmap {i}')
+                axes[i, 0].axis('off')
+
+                # Overlay
+                rgb_img_np = img_vis[i, 3:6, ...].permute(1, 2, 0).numpy()
+                heatmap_h, heatmap_w = heatmap.shape
+
+                # Resize rgb_img_np to match heatmap dimensions
+                rgb_img_np = cv2.resize(rgb_img_np, (heatmap_w, heatmap_h), interpolation=cv2.INTER_LINEAR)
+
+                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min()) 
+                heatmap_colored = plt.cm.jet(heatmap)[:, :, :3]
+                alpha = 0.4
+                overlay = rgb_img_np * (1 - alpha) + heatmap_colored * alpha
+                overlay = np.clip(overlay, 0, 1)
+
+                axes[i, 1].imshow(overlay)
+                axes[i, 1].set_title(f'Overlay {i}')
+                axes[i, 1].axis('off')
+
+            plt.tight_layout()
+            plt.show()
 
         if self.stage_two:
             with torch.no_grad():

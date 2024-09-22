@@ -87,11 +87,13 @@ class RVTBoxRenderer():
     ):
         cam_dict = {
             "top": {"eye": [0, 0, 1], "at": [0, 0, 0], "up": [0, 1, 0]},
-            "front": {"eye": [1, 0, 0], "at": [0, 0, 0], "up": [0, 0, 1]},
+            # "front": {"eye": [1, 0, 0], "at": [0, 0, 0], "up": [0, 0, 1]},
+            "front": {"eye": [1, 0, 0.2], "at": [0, 0, 0], "up": [0, 0, 1]},
             "down": {"eye": [0, 0, -1], "at": [0, 0, 0], "up": [0, 1, 0]},
             "back": {"eye": [-1, 0, 0], "at": [0, 0, 0], "up": [0, 0, 1]},
             "left": {"eye": [0, -1, 0], "at": [0, 0, 0], "up": [0, 0, 1]},
-            "right": {"eye": [0, 0.5, 0], "at": [0, 0, 0], "up": [0, 0, 1]},
+            # "right": {"eye": [0, 0.5, 0], "at": [0, 0, 0], "up": [0, 0, 1]},
+            "right": {"eye": [0, 0.5, 0.1], "at": [0, 0, 0], "up": [0, 0, 1]},
         }
 
         assert not (two_views and three_views)
@@ -124,6 +126,7 @@ class RVTBoxRenderer():
         eyes = [c["eye"] for c in cam_list]
         ats = [c["at"] for c in cam_list]
         ups = [c["up"] for c in cam_list]
+        img_sizes_w = [[2, 2], [2.05, 2.05], [1.03, 1.03]]
 
         if orthographic:
             # img_sizes_w specifies height and width dimensions of the image in world coordinates
