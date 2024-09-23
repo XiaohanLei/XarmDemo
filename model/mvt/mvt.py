@@ -293,7 +293,7 @@ class MVT(nn.Module):
         :param rot_x_y: (bs, 2) rotation in x and y direction
         """
 
-        debug_vis = True
+        debug_vis = False
 
         with torch.no_grad():
             if self.training and (self.img_aug_2 != 0):

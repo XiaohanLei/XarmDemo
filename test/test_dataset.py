@@ -7,6 +7,18 @@ sys.path.append('D:\\Codes\\XarmDemo\\utils')
 from dataset_utils import get_dataset
 import time
 
+def filter_out_plane(point_cloud, distance_threshold=0.01, ransac_n=3, num_iterations=1000):
+    # Segment the plane
+    plane_model, inliers = point_cloud.segment_plane(distance_threshold=distance_threshold,
+                                                     ransac_n=ransac_n,
+                                                     num_iterations=num_iterations)
+    
+    # Extract the planar and non-planar points
+    planar_cloud = point_cloud.select_by_index(inliers)
+    non_planar_cloud = point_cloud.select_by_index(inliers, invert=True)
+    
+    return non_planar_cloud, planar_cloud
+
 if __name__ == '__main__':
 
     dataset = get_dataset(bs=1)
@@ -38,6 +50,12 @@ if __name__ == '__main__':
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts)
         pcd.colors = o3d.utility.Vector3dVector(cols)
-        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
+        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.08)
+        flip_z = np.eye(4)
+        flip_z[2, 2] = -1  # Flip the z-axis
+        flip_z[0, 3] = 0.5
+        # Apply the transformation to the coordinate frame
+        coor.transform(flip_z)
+
         o3d.visualization.draw_geometries([pcd, coor, gripper_frame])
         time.sleep(2)
