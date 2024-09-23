@@ -21,12 +21,21 @@ arm = XArmAPI(ip)
 arm.motion_enable(enable=True)
 arm.set_mode(5)  # 设置为笛卡尔速度控制模式
 arm.set_state(state=0)
-angle_speed = 10
-trans_speed = 10000
+angle_speed = 20
+trans_speed = 100
 time.sleep(1)
 
+arm.set_gripper_mode(0)
+arm.set_gripper_enable(True)
+
+trans_acc = 5000 * 5  # mm/s^2
+trans_jerk = 10000 * 5  # mm/s^3
+# arm.set_tcp_acc(trans_acc)
+arm.set_tcp_maxacc(trans_acc)
+arm.set_tcp_jerk(trans_jerk)
+
 # 设置死区
-DEADZONE = 0.1
+DEADZONE = 0.2
 
 def apply_deadzone(value, deadzone):
     if abs(value) < deadzone:
@@ -44,22 +53,22 @@ try:
         y_speed = apply_deadzone(joystick.get_axis(0), DEADZONE) * trans_speed  # 前后移动
 
         # 读取L2和R2按钮输入 (Z轴移动)
-        z_speed = (joystick.get_axis(5) - joystick.get_axis(2)) * trans_speed  # 上下移动
-        z_speed = 0
+        z_speed = (joystick.get_button(11) - joystick.get_button(12)) * trans_speed  # 上下移动
 
         # 读取右摇杆输入 (Roll和Pitch旋转)
         roll = apply_deadzone(joystick.get_axis(2), DEADZONE) * angle_speed  # 绕X轴旋转
         pitch = apply_deadzone(-joystick.get_axis(3), DEADZONE) * angle_speed  # 绕Y轴旋转
 
         # 读取L1和R1按钮输入 (Yaw旋转)
-        yaw = (joystick.get_button(5) - joystick.get_button(4)) * angle_speed  # 绕Z轴旋转
-        yaw = 0
+        yaw = (joystick.get_button(3) - joystick.get_button(0)) * angle_speed   # 绕Z轴旋转
+
 
         # 读取数字键盘输入
-        gripper_action = joystick.get_button(0) - joystick.get_button(1)  # 0键开启夹爪，1键关闭夹爪
+        gripper_action = joystick.get_button(9) - joystick.get_button(10)  # 0键开启夹爪，1键关闭夹爪
 
         # 控制机械臂移动
-        arm.vc_set_cartesian_velocity([x_speed, y_speed, z_speed, roll, pitch, yaw], duration=0.05)
+        # print([x_speed, y_speed, z_speed, roll, pitch, yaw])
+        arm.vc_set_cartesian_velocity([x_speed, y_speed, z_speed, roll, pitch, yaw])
 
         # 控制夹爪
         if gripper_action == 1:
@@ -67,7 +76,7 @@ try:
         elif gripper_action == -1:
             arm.set_gripper_position(0, wait=True)  # 关闭夹爪
 
-        time.sleep(0.05)  # 稍微延迟以防止过快发送命令
+        time.sleep(0.01)  # 稍微延迟以防止过快发送命令
 
 except KeyboardInterrupt:
     print("程序已终止")
