@@ -43,10 +43,10 @@ class RobotDataset(Dataset):
         self.episodes = []
         self.device = device
 
-        self.x_bounds = (0.1, 0.5)
-        self.y_bounds = (-0.4, 0.4)
-        self.z_bounds = (-0.2, 0.8)
-        # self.z_bounds = (-0.05, 0.8)
+        self.x_bounds = (0.0, 0.6)
+        self.y_bounds = (-0.35, 0.25)
+        self.z_bounds = (-0.1, 0.5)
+        # self.z_bounds = (-0.075, 0.8)
         
         # Collect all episode files
         for task in os.listdir(root_dir):
@@ -95,22 +95,23 @@ class RobotDataset(Dataset):
     def __len__(self):
         return len(self.episodes)
     
-    def __getitem__(self, idx, overlap_extrinsic=True):
+    def __getitem__(self, idx, overlap_extrinsic=False):
         episode_path = self.episodes[idx]
         data = np.load(episode_path, allow_pickle=True)
         frames = data['frames']
         instruction = str(data['instruction'])
-        if overlap_extrinsic:
-            extrinsics = np.load('calibration/extrinsic.npy')
-        else:
-            extrinsics = current_frame['camera_data'][0]['extrinsics']
-        
+ 
         # Randomly select a frame index (except the last one)
         frame_idx = np.random.randint(0, len(frames) - 1)
         
         # Get current and next frame
         current_frame = frames[frame_idx]
         next_frame = frames[frame_idx + 1]
+
+        if overlap_extrinsic:
+            extrinsics = np.load('calibration/extrinsic.npy')
+        else:
+            extrinsics = current_frame['camera_data'][0]['extrinsics']
         
         # Process current frame
         current_camera_data = current_frame['camera_data'][0]

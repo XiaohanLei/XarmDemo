@@ -12,12 +12,12 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 # TODO: Unclear about the best way to handle them
 CAMERAS = ["front", "left_shoulder", "right_shoulder", "wrist"]
 SCENE_BOUNDS = [
-    0.1,
-    -0.4,
-    -0.2,
+    0.0,
+    -0.35,
+    -0.1,
+    0.6,
+    0.25,
     0.5,
-    0.4,
-    0.8,
 ]  # [x_min, y_min, z_min, x_max, y_max, z_max] - the metric volume to be voxelized
 IMAGE_SIZE = 128
 VOXEL_SIZES = [100]  # 100x100x100 voxels

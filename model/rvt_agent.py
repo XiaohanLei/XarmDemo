@@ -776,6 +776,8 @@ class RVTAgent:
 
         with torch.no_grad():
 
+            print('current task: ', replay_sample['instruction'])
+
             lang_goal_embs = clip.tokenize(replay_sample['instruction']).to(self._device)
             _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_embs)
             lang_goal_embs = lang_goal_embs.float()
@@ -816,13 +818,23 @@ class RVTAgent:
         )
 
         import open3d as o3d
+        from scipy.spatial.transform import Rotation
+
+
         pts = replay_sample['current_pts'][0].cpu().numpy()
         cols = replay_sample['current_cols'][0].cpu().numpy()
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts)
         pcd.colors = o3d.utility.Vector3dVector(cols)
         wpt = pred_wpt.cpu().numpy()[0]
-        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3).translate(wpt[:, None])
+        rot = pred_rot.cpu().numpy()[0]
+        r = Rotation.from_euler('xyz', rot, degrees=True)
+        rotation_matrix = r.as_matrix()
+
+        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
+        coor.rotate(rotation_matrix, center=(0, 0, 0))
+        coor.translate(wpt[:, None])
+        
         o3d.visualization.draw_geometries([pcd, coor])
 
         print(pred_wpt)
