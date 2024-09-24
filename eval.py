@@ -71,14 +71,16 @@ class Camera:
         self.extrinsics = []
         self.num_cameras = 1
 
-        self.x_bounds = (0.1, 0.5)
-        self.y_bounds = (-0.4, 0.4)
-        self.z_bounds = (-0.2, 1.4)
+        self.x_bounds = (0.0, 0.6)
+        self.y_bounds = (-0.35, 0.25)
+        self.z_bounds = (-0.1, 0.5)
 
         pipeline = rs.pipeline()
         config = rs.config()
-        config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
-        config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+        # config.enable_stream(rs.stream.depth, 1024, 768, rs.format.z16, 30)
+        # config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        config.enable_stream(rs.stream.color, 960, 540, rs.format.bgr8, 30)
         pipeline.start(config)
         self.pipeline.append(pipeline)
         self.align.append(rs.align(rs.stream.color))
@@ -164,7 +166,9 @@ class Arm:
 
     def control(self, pos, rot, grip):
         pos = pos * 1000
+        pos[2] = pos[2] + 180
         self.arm.set_position(*pos, *rot, is_radian=False, wait=True, speed=100)
+        grip = float(input('input gripper: '))
         if grip > 0.5:
             self.arm.set_gripper_position(800, wait=True)
         else:
@@ -259,9 +263,10 @@ def eval(
     if isinstance(agent, rvt_agent.RVTAgent):
         agent.load_clip()
 
-    dataset = get_dataset(bs=1)
-    for batch in dataset:
-        agent.act(batch)
+    # dataset = get_dataset(bs=1)
+    # for batch in dataset:
+    #     agent.act(batch)
+
     cam = Camera()
     if enable_xarm:
         arm = Arm()
@@ -272,7 +277,7 @@ def eval(
     trans, rot, gripper = agent.act({
         'current_pts': [pts],
         'current_cols': [cols],
-        'instruction': 'lift the orange block',
+        'instruction': 'place mango on the plate',
     })
     if enable_xarm:
         arm.control(trans, rot, gripper)
