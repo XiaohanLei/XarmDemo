@@ -33,12 +33,7 @@ class DataCollector:
             self.align.append(rs.align(rs.stream.color))
             self.extrinsics.append(np.load('extrinsic.npy'))
     
-        
 
-        # self.extrinsics = [[[ 0.09529217, 0.47956549, -0.87231666, 0.83413991],
-        #                    [ 0.99378559, 0.00481251, 0.11120721, 0.11541528],
-        #                    [0.05752917, -0.8774929,  -0.47612667, 0.40279357],
-        #                    [0, 0, 0, 1]]]  # 需要填充实际的外参
         
         self.task_dir = Path("data")
         self.episode_count = 0

@@ -275,9 +275,9 @@ def eval(
     if isinstance(agent, rvt_agent.RVTAgent):
         agent.load_clip()
 
-    # dataset = get_dataset(bs=1)
-    # for batch in dataset:
-    #     agent.act(batch)
+    dataset = get_dataset(bs=1)
+    for batch in dataset:
+        agent.act(batch)
 
     cam = Camera()
     if enable_xarm:
