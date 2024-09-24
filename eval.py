@@ -29,7 +29,7 @@ from collections import defaultdict
 from contextlib import redirect_stdout
 
 import torch
-
+from scipy.spatial.transform import Rotation
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["BITSANDBYTES_NOWELCOME"] = "1"
@@ -164,7 +164,19 @@ class Arm:
         self.arm.set_gripper_mode(0)
         self.arm.set_gripper_enable(True)
 
+    def unprocess_gripper(self, pos, rot, translation_z=0.170):
+        r = Rotation.from_euler("xyz", rot, degrees=True)
+        R = r.as_matrix()
+        t = pos * 1.
+
+        camera_translation = np.array([0, 0, -translation_z])
+        world_translation = R @ camera_translation
+
+        new_t = t + world_translation
+        return new_t
+
     def control(self, pos, rot, grip):
+        pos = self.unprocess_gripper(pos, rot)
         pos = pos * 1000
         pos[2] = pos[2] + 180
         self.arm.set_position(*pos, *rot, is_radian=False, wait=True, speed=100)

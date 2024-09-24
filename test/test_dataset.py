@@ -50,10 +50,10 @@ if __name__ == '__main__':
         pts = batch['current_pts'][0].cpu().numpy()
         cols = batch['current_cols'][0].cpu().numpy()
 
-        # gripper_trans = batch['current_gripper_pos'][0].cpu().numpy() # 3 for x, y, z
-        # gripper_rot = batch['current_gripper_rot'][0].cpu().numpy() # 3 for pitch, roll, yaw
-        gripper_trans = batch['next_gripper_pos'][0].cpu().numpy() # 3 for x, y, z
-        gripper_rot = batch['next_gripper_rot'][0].cpu().numpy() # 3 for pitch, roll, yaw
+        gripper_trans = batch['current_gripper_pos'][0].cpu().numpy() # 3 for x, y, z
+        gripper_rot = batch['current_gripper_rot'][0].cpu().numpy() # 3 for pitch, roll, yaw
+        # gripper_trans = batch['next_gripper_pos'][0].cpu().numpy() # 3 for x, y, z
+        # gripper_rot = batch['next_gripper_rot'][0].cpu().numpy() # 3 for pitch, roll, yaw
         print(gripper_trans)
         print(gripper_rot)
 
@@ -84,7 +84,7 @@ if __name__ == '__main__':
         flip_z[2, 2] = -1  # Flip the z-axis
         flip_z[0, 3] = 0.5
         # Apply the transformation to the coordinate frame
-        coor.transform(flip_z)
+        # coor.transform(flip_z)
 
         o3d.visualization.draw_geometries([pcd, coor, gripper_frame])
         time.sleep(2)

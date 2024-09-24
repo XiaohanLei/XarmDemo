@@ -91,11 +91,26 @@ class RobotDataset(Dataset):
         r = Rotation.from_euler("xyz", rot, degrees=True)
         euler = r.as_euler("xyz", degrees=True)
         return euler
+    
+    def process_c2w(self, pos, rot, translation_z=0.170):
+
+        r = Rotation.from_euler("xyz", rot, degrees=True)
+        R = r.as_matrix()
+
+        t = pos * 1.
+
+        camera_translation = np.array([0, 0, translation_z])
+
+        world_translation = R @ camera_translation
+
+        new_t = t + world_translation
+        
+        return new_t
         
     def __len__(self):
         return len(self.episodes)
     
-    def __getitem__(self, idx, overlap_extrinsic=False):
+    def __getitem__(self, idx, overlap_extrinsic=False, process_gripper=True):
         episode_path = self.episodes[idx]
         data = np.load(episode_path, allow_pickle=True)
         frames = data['frames']
@@ -121,6 +136,8 @@ class RobotDataset(Dataset):
         current_extrinsics = extrinsics * 1.
         current_gripper_pos = current_frame['gripper_pose']['position']
         current_gripper_rot = current_frame['gripper_pose']['rotation']
+        if process_gripper:
+            current_gripper_pos = self.process_c2w(current_gripper_pos, current_gripper_rot)
         current_gripper_rot = self.process_euler(current_gripper_rot)
         current_gripper_state = current_frame['gripper_state']
         current_ignore_collision = int(current_frame['ignore_collision'])
@@ -133,6 +150,8 @@ class RobotDataset(Dataset):
         next_extrinsics = extrinsics * 1.
         next_gripper_pos = next_frame['gripper_pose']['position']
         next_gripper_rot = next_frame['gripper_pose']['rotation']
+        if process_gripper:
+            next_gripper_pos = self.process_c2w(next_gripper_pos, next_gripper_rot)
         next_gripper_rot = self.process_euler(next_gripper_rot)
         next_gripper_state = next_frame['gripper_state']
         next_ignore_collision = int(next_frame['ignore_collision'])
