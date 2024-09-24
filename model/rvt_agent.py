@@ -544,17 +544,17 @@ class RVTAgent:
             _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_embs)
             lang_goal_embs = lang_goal_embs.float()
 
-            # if self._transform_augmentation and backprop:
-            #     action_trans_con, action_rot, pc = apply_se3_aug_con(
-            #         pcd=pc,
-            #         action_trans_con=action_trans_con,
-            #         action_rot=action_rot,
-            #         bounds=torch.tensor(self.scene_bounds),
-            #         trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
-            #         rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
-            #     )
-            #     action_trans_con = torch.tensor(action_trans_con).to(pc[0].device)
-            #     action_rot = torch.tensor(action_rot).to(pc[0].device)
+            if self._transform_augmentation and backprop:
+                action_trans_con, action_rot, pc = apply_se3_aug_con(
+                    pcd=pc,
+                    action_trans_con=action_trans_con,
+                    action_rot=action_rot,
+                    bounds=torch.tensor(self.scene_bounds),
+                    trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
+                    rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
+                )
+                action_trans_con = torch.tensor(action_trans_con).to(pc[0].device)
+                action_rot = torch.tensor(action_rot).to(pc[0].device)
 
             pc, img_feat = rvt_utils.move_pc_in_bound(
                 pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
@@ -783,6 +783,8 @@ class RVTAgent:
             lang_goal_embs = clip.tokenize(replay_sample['instruction']).to(self._device)
             _, lang_goal_embs = _clip_encode_text(self.clip_model, lang_goal_embs)
             lang_goal_embs = lang_goal_embs.float()
+
+            # print(lang_goal_embs)
 
             pc, img_feat = rvt_utils.move_pc_in_bound(
                 pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound

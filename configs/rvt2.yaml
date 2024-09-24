@@ -11,10 +11,10 @@ peract:
   warmup_steps: 50
   optimizer_type: lamb
   lr_cos_dec: False
-  # transform_augmentation_xyz: [0.125, 0.125, 0.125]
-  transform_augmentation_xyz: [0.015, 0.015, 0.015]
-  # transform_augmentation_rpy: [0.0, 0.0, 45.0]
-  transform_augmentation_rpy: [0.0, 0.0, 15.0]
+  transform_augmentation_xyz: [0.125, 0.125, 0.125]
+  # transform_augmentation_xyz: [0.015, 0.015, 0.015]
+  transform_augmentation_rpy: [0.0, 0.0, 45.0]
+  # transform_augmentation_rpy: [0.0, 0.0, 15.0]
   amp: True
   bnb: True
   lambda_weight_l2: 1e-4

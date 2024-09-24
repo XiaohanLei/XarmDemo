@@ -544,7 +544,11 @@ def apply_se3_aug_con(
 
     # Compute translation perturbation
     trans_range = (bounds[:, 3:] - bounds[:, :3]) * trans_aug_range.to(device)
-    trans_shift = trans_range * aug_utils.rand_dist((bs, 3)).to(device)
+    # trans_shift = trans_range * aug_utils.rand_dist((bs, 3), min=0).to(device)
+    trans_shift_x = trans_range[:, 0] * aug_utils.rand_dist((bs, ), min=-1).to(device)
+    trans_shift_y = trans_range[:, 1] * aug_utils.rand_dist((bs, ), min=-1).to(device)
+    trans_shift_z = trans_range[:, 2] * aug_utils.rand_dist((bs, ), min=0).to(device)
+    trans_shift = torch.stack([trans_shift_x, trans_shift_y, trans_shift_z], dim=-1)
 
     # Apply bounded translations
     bounds_min = bounds[:, :3]  # [bs, 3]
