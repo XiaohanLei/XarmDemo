@@ -835,7 +835,13 @@ class RVTAgent:
         r = Rotation.from_euler('xyz', rot, degrees=True)
         rotation_matrix = r.as_matrix()
 
-        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
+
+        camera_translation = np.array([0, 0, -0.17])
+        world_translation = rotation_matrix @ camera_translation
+        wpt = wpt + world_translation
+        print(wpt)
+
+        coor = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.17)
         coor.rotate(rotation_matrix, center=(0, 0, 0))
         coor.translate(wpt[:, None])
 
