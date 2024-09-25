@@ -177,8 +177,9 @@ class Arm:
 
     def control(self, pos, rot, grip):
         pos = self.unprocess_gripper(pos, rot)
+        print(pos)
         pos = pos * 1000
-        pos[2] = pos[2] + 180
+        pos[2] = pos[2]
         self.arm.set_position(*pos, *rot, is_radian=False, wait=True, speed=100)
         grip = float(input('input gripper: '))
         if grip > 0.5:
@@ -275,24 +276,26 @@ def eval(
     if isinstance(agent, rvt_agent.RVTAgent):
         agent.load_clip()
 
-    dataset = get_dataset(bs=1)
-    for batch in dataset:
-        agent.act(batch)
+    # dataset = get_dataset(bs=1)
+    # for batch in dataset:
+    #     agent.act(batch)
 
     cam = Camera()
     if enable_xarm:
         arm = Arm()
-    pts, cols = cam.get_pc()
-    print(pts.shape, cols.shape)
-    pts = torch.tensor(pts).cuda().float()
-    cols = torch.tensor(cols).cuda().float()
-    trans, rot, gripper = agent.act({
-        'current_pts': [pts],
-        'current_cols': [cols],
-        'instruction': 'place mango on the plate',
-    })
-    if enable_xarm:
-        arm.control(trans, rot, gripper)
+    while True:
+        pts, cols = cam.get_pc()
+        pts = torch.tensor(pts).cuda().float()
+        cols = torch.tensor(cols).cuda().float()
+        trans, rot, gripper = agent.act({
+            'current_pts': [pts],
+            'current_cols': [cols],
+            'instruction': 'place lemon on the plate',
+        })
+        if enable_xarm:
+            arm.control(trans, rot, gripper)
+        import time
+        time.sleep(1)
 
 
     # set agent to back train mode
